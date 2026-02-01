@@ -127,6 +127,6 @@ python examples/cartpole_training.py --demo
 
 ---
 
-**Versione**: 1.0.0
+**Versione**: 1.0.1
 **Licenza**: MIT
 **Autore**: CusterMustOfficial

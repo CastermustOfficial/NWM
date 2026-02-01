@@ -29,7 +29,7 @@ Main Components
 - PersistentPotentialField: Spatial memory structure with force calculations
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 __author__ = "CusterMustOfficial"
 
 from nwm.agents.nwm_agent import NWMAgent as NWM
