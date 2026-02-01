@@ -21,7 +21,14 @@ Il **Negative Weight Mapping** trasforma l'esperienza passata in un **Campo di F
 ## Installazione
 
 ```bash
-cd PYTHONLIB
+pip install nwm-rl
+```
+
+Oppure da sorgente:
+
+```bash
+git clone https://github.com/CastermustOfficial/NWM.git
+cd NWM
 pip install -e .
 ```
 
