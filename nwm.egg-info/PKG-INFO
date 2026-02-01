@@ -1,0 +1,210 @@
+Metadata-Version: 2.4
+Name: nwm
+Version: 1.0.0
+Summary: Negative Weight Mapping - A Reinforcement Learning framework using persistent potential fields
+Author: NWM Research Team
+License: MIT
+Project-URL: Homepage, https://github.com/nwm-research/nwm
+Project-URL: Documentation, https://github.com/nwm-research/nwm#readme
+Keywords: reinforcement-learning,machine-learning,ai,potential-field,exploration
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy>=1.20.0
+Requires-Dist: gymnasium>=0.26.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.0.0; extra == "dev"
+Provides-Extra: full
+Requires-Dist: matplotlib>=3.5.0; extra == "full"
+Requires-Dist: torch>=2.0.0; extra == "full"
+Dynamic: license-file
+
+# NWM - Negative Weight Mapping
+
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+**Apprendimento per Esclusione in Reinforcement Learning** - Un framework che guida l'esplorazione e la stabilità degli agenti RL utilizzando memorie persistenti di fallimento e successo.
+
+## 🌟 Cos'è NWM?
+
+Il **Negative Weight Mapping** trasforma l'esperienza passata in un **Campo di Forza Potenziale**. L'agente naviga lo spazio degli stati reagendo a:
+
+- 🟢 **Forze Attrattive** → Successi passati che guidano verso azioni ottimali
+- 🔴 **Forze Repulsive** → Fallimenti passati che allontanano da azioni pericolose
+
+### Caratteristiche Principali
+
+| Feature | Descrizione |
+|---------|-------------|
+| **Dynamic Smart Lock** | Protegge automaticamente le memorie di alta qualità |
+| **Adaptive Exploration** | Riduce l'esplorazione quando trova strategie vincenti |
+| **Persistent Memory** | I centroidi evolvono con "stiffness" progressiva |
+| **Fear & Greed** | Evita le azioni pericolose prima di cercare il guadagno |
+
+## 🚀 Installazione
+
+```bash
+cd PYTHONLIB
+pip install -e .
+```
+
+Oppure per lo sviluppo:
+
+```bash
+pip install -e ".[dev]"
+```
+
+## ⚡ Quick Start
+
+```python
+import gymnasium as gym
+from nwm import NWMAgent
+
+# Crea ambiente e agente
+env = gym.make("CartPole-v1")
+agent = NWMAgent(
+    state_dim=env.observation_space.shape[0],
+    num_actions=env.action_space.n
+)
+
+# Training loop
+for episode in range(100):
+    state, _ = env.reset()
+    done = False
+    
+    while not done:
+        action = agent.select_action(state)
+        next_state, reward, terminated, truncated, _ = env.step(action)
+        done = terminated or truncated
+        agent.step(state, action, reward, next_state, done)
+        state = next_state
+    
+    print(f"Episode {episode + 1}: Best = {agent.best_reward:.0f}")
+```
+
+## 📖 API Reference
+
+### NWMAgent
+
+```python
+from nwm import NWMAgent, NWMConfig
+
+# Con configurazione personalizzata
+config = NWMConfig(
+    max_centroids=500,      # Massimo numero di centroidi
+    warmup_episodes=50,     # Episodi di pura esplorazione
+    exploration_rate=1.0,   # Tasso iniziale di esplorazione
+    exploration_decay=0.99, # Decay dell'esplorazione
+    min_exploration=0.05,   # Esplorazione minima
+)
+
+agent = NWMAgent(state_dim=4, num_actions=2, config=config)
+
+# Metodi principali
+action = agent.select_action(state, training=True)
+agent.step(state, action, reward, next_state, done)
+stats = agent.get_stats()
+
+# Save/Load
+agent.save("agent.pkl")
+agent = NWMAgent.load("agent.pkl")
+```
+
+### NWMConfig
+
+Tutti i parametri configurabili:
+
+| Parametro | Default | Descrizione |
+|-----------|---------|-------------|
+| `max_centroids` | 500 | Numero massimo di centroidi in memoria |
+| `warmup_episodes` | 50 | Episodi di warmup prima del learning |
+| `exploration_rate` | 1.0 | Tasso iniziale di esplorazione |
+| `exploration_decay` | 0.99 | Fattore di decay |
+| `min_exploration` | 0.05 | Esplorazione minima |
+| `merge_threshold` | 0.3 | Soglia per il merge dei centroidi |
+| `distance_cutoff` | 2.5 | Distanza massima di influenza |
+| `lock_min_visits` | 8 | Visite minime per il lock |
+| `lock_min_score` | 0.80 | Score minimo per il lock |
+
+## 📁 Struttura del Package
+
+```
+PYTHONLIB/
+├── nwm/                    # Package principale
+│   ├── agents/             # Implementazioni agenti
+│   │   └── nwm_agent.py    # NWMAgent
+│   ├── core/               # Componenti core
+│   │   ├── centroid.py     # PersistentCentroid
+│   │   └── potential_field.py  # PersistentPotentialField
+│   └── utils/              # Utilities
+│       └── config.py       # NWMConfig
+├── examples/               # Esempi di utilizzo
+│   ├── quickstart.py       # Esempio minimale
+│   ├── cartpole_training.py    # Training completo
+│   └── custom_environment.py   # Ambiente custom
+└── tests/                  # Test suite
+```
+
+## 🧪 Eseguire i Test
+
+```bash
+pip install -e ".[dev]"
+pytest tests/ -v
+```
+
+## 📊 Eseguire gli Esempi
+
+```bash
+# Quick start
+python examples/quickstart.py
+
+# Training completo con visualizzazione
+python examples/cartpole_training.py --episodes 500
+
+# Demo visuale
+python examples/cartpole_training.py --demo
+```
+
+## 🔬 Come Funziona
+
+### Il Campo di Forza
+
+Ogni centroide in memoria genera un impatto basato sulla distanza spaziale:
+
+```
+Impatto = Forza × Peso_Spaziale × Confidenza × log(1 + count) × Lock_Boost
+```
+
+- **Attrazione**: Score > 0.6 → forza positiva
+- **Repulsione**: Score < 0.4 → forza negativa (decadimento quadratico)
+- **Lock Boost**: 2.5× per centroidi bloccati
+
+### Dynamic Smart Lock
+
+Per evitare che l'agente dimentichi successi passati:
+
+1. Se `reward < dynamic_threshold` → Score cappato a 0.6 (no lock)
+2. Se `reward >= dynamic_threshold` E `visits > 8` E `avg_score > 0.8` → Lock!
+
+```
+Dynamic Threshold = max(40, avg_recent_reward × 1.25)
+```
+
+---
+
+**Versione**: 1.0.0  
+**Licenza**: MIT  
+**Autore**: NWM Research Team
