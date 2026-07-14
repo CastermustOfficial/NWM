@@ -2,7 +2,6 @@
 
 **A non-parametric reinforcement learning framework built on persistent potential fields.**
 
-[![CI](https://github.com/CastermustOfficial/NWM/actions/workflows/ci.yml/badge.svg)](https://github.com/CastermustOfficial/NWM/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/nwm-rl.svg)](https://pypi.org/project/nwm-rl/)
 [![Python](https://img.shields.io/pypi/pyversions/nwm-rl.svg)](https://pypi.org/project/nwm-rl/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -20,7 +19,7 @@ The result is a transparent, reproducible, dependency-light agent (NumPy +
 Gymnasium) that starts behaving sensibly from very few episodes.
 
 > **What's new in 2.0** — `src/` layout, reproducible seeding, an incremental
-> query cache, strict typing, a full CI matrix, an **extended benchmark suite**
+> query cache, strict typing, an **extended benchmark suite**
 > vs. Random / tabular Q-learning / DQN, and an accompanying **LaTeX paper**.
 > See the [CHANGELOG](CHANGELOG.md).
 

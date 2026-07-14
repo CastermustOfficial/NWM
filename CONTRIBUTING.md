@@ -16,7 +16,7 @@ pre-commit install
 
 ## Quality gates
 
-All of the following must pass before a PR is merged (they also run in CI):
+All of the following must pass before a PR is merged:
 
 ```bash
 ruff check .            # lint
@@ -51,5 +51,5 @@ pytest --cov=nwm        # tests + coverage
 
 1. Bump `version` in `pyproject.toml` and `__version__` in `src/nwm/__init__.py`.
 2. Update `CHANGELOG.md`.
-3. Tag `vX.Y.Z` and push; the `release.yml` workflow builds and publishes to
-   PyPI via Trusted Publishing.
+3. Tag `vX.Y.Z` and push.
+4. Build and publish: `python -m build` then `python -m twine upload dist/*`.

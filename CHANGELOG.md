@@ -24,9 +24,7 @@ Python API (`NWM`, `NWMAgent`, `NWMConfig`, `PersistentCentroid`,
 - **Scientific paper** (`paper/`) in LaTeX with the formalized method, related
   work, experimental protocol, and results generated from the benchmark suite.
 - **Tooling**: Ruff (lint + format), mypy in `strict` mode, pytest coverage,
-  pre-commit hooks, and GitHub Actions CI (lint/type-check + test matrix on
-  Python 3.9-3.13 across Linux/macOS/Windows) plus a PyPI Trusted-Publishing
-  release workflow.
+  and pre-commit hooks.
 - **Typing**: `py.typed` marker so downstream users get type information.
 - New tests covering seeding, determinism, and end-to-end reproducibility.
 
