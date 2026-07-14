@@ -82,6 +82,8 @@ class NWMAgent:
     2. **Dynamic Smart Lock**: Protects high-value memories from being overwritten
     3. **Adaptive Exploration**: Automatically reduces exploration as performance improves
     4. **Fear & Greed**: Avoids dangerous actions before seeking optimal ones
+    5. **Sticky Exploration**: Optionally repeats exploratory actions
+       (``config.exploration_repeat``) to build momentum on sparse-reward tasks
     """
 
     def __init__(
@@ -121,6 +123,10 @@ class NWMAgent:
         self._current_states: list[np.ndarray] = []
         self._current_actions: list[int] = []
         self._current_rewards: list[float] = []
+
+        # Temporally-correlated ("sticky") exploration state.
+        self._exploration_repeat = self.config.exploration_repeat
+        self._last_action: int | None = None
 
         # History and statistics
         self._reward_history: list[float] = []
@@ -183,7 +189,19 @@ class NWMAgent:
         return max(safe_actions, key=lambda a: forces[a])
 
     def _random_action(self) -> int:
-        """Sample a uniformly random valid action from the private RNG."""
+        """Sample an exploratory action from the private RNG.
+
+        With probability ``exploration_repeat`` the previous action is repeated
+        (temporally-correlated "sticky" exploration) to build momentum in
+        environments that need sustained torque; otherwise a uniform action is
+        drawn.
+        """
+        if (
+            self._exploration_repeat > 0.0
+            and self._last_action is not None
+            and self._rng.random() < self._exploration_repeat
+        ):
+            return self._last_action
         return int(self._rng.integers(0, self.num_actions))
 
     def step(
@@ -224,6 +242,7 @@ class NWMAgent:
         self._current_states.append(state)
         self._current_actions.append(action)
         self._current_rewards.append(reward)
+        self._last_action = action
 
         if done:
             self._end_episode()
@@ -299,6 +318,7 @@ class NWMAgent:
         self._current_states = []
         self._current_actions = []
         self._current_rewards = []
+        self._last_action = None
 
     def get_stats(self) -> dict[str, Any]:
         """
@@ -334,6 +354,7 @@ class NWMAgent:
         self._reward_history = []
         self._recent_rewards = deque(maxlen=20)
         self._sorted_rewards = []
+        self._last_action = None
         self.best_reward = float("-inf")
         self.total_episodes = 0
         self.exploration_rate = self.base_exploration

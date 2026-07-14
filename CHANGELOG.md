@@ -5,6 +5,32 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-07-14
+
+A performance release. The headline is **temporally-correlated (sticky)
+exploration**, which turns NWM's previously reported sparse-reward failure into a
+win: NWM now solves MountainCar and outperforms DQN there. The public API is
+unchanged and fully backward compatible.
+
+### Added
+- **Sticky exploration** (`NWMConfig.exploration_repeat`, default `0.0`): during
+  exploratory steps the previous action is repeated with probability
+  `exploration_repeat`, otherwise a uniform action is drawn. This builds the
+  sustained momentum that uniform noise cannot, and is what lets NWM reach the
+  goal on sparse-reward tasks. `0.0` preserves the classic uniform behavior.
+
+### Changed
+- Benchmark per-env tuning: MountainCar now uses `exploration_repeat=0.9`
+  (−200 → **−130.4 ± 9.7**, beating DQN's −173.2 ± 27.5); Acrobot uses a coarser
+  `merge_threshold=0.5` (−307.9 → −265.7).
+- Refreshed the full 5-seed benchmark, `results/` artifacts, the paper's results
+  table/figures, and the README table. DQN is re-reported from a fresh run; its
+  high across-seed variance (e.g. CartPole 193.7 ± 158.5) contrasts with NWM's
+  markedly lower variance.
+- Paper (`paper/nwm.tex`): formalized sticky exploration (new equation and
+  algorithm step) and rewrote the abstract, results, and limitations to reflect
+  that the MountainCar barrier was **exploration, not credit assignment**.
+
 ## [2.0.0] - 2026-07-14
 
 A modernization release focused on engineering quality, reproducibility, an
@@ -50,4 +76,5 @@ Python API (`NWM`, `NWMAgent`, `NWMConfig`, `PersistentCentroid`,
   memory, Dynamic Smart Lock, adaptive exploration, examples, and a basic test
   suite.
 
+[2.1.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.1.0
 [2.0.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.0.0

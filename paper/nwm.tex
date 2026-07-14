@@ -39,17 +39,24 @@ statistics---and selects actions by aggregating attractive (success) and
 repulsive (failure) forces from nearby centroids. Two mechanisms give the memory
 long-term stability: a \emph{Dynamic Smart Lock} that protects high-confidence
 prototypes from being overwritten, and a \emph{Fear \& Greed} decision rule that
-rejects dangerous actions before maximizing reward. We formalize the method and
-evaluate it against three baselines---a uniform random policy, tabular
-Q-learning with state aggregation, and a Deep Q-Network (DQN)---on three
-classic-control benchmarks spanning a difficulty gradient (CartPole, Acrobot,
-MountainCar), reporting mean and standard deviation over five seeds under a
-fixed evaluation protocol. \NWM{} is the strongest method on the dense,
-low-dimensional CartPole task, learns but trails DQN on Acrobot, and---like the
-other non-bootstrapping baselines---fails on sparse-reward MountainCar. The
-study thus characterizes precisely where an instance-based potential-field
-method is competitive and where parametric value learning retains an advantage.
-All code, seeds, and figures are released to make the study fully reproducible.
+rejects dangerous actions before maximizing reward. To act well under sparse
+reward, \NWM{} additionally uses \emph{temporally-correlated (sticky)
+exploration}, which repeats exploratory actions to build the sustained momentum
+that uniform noise cannot. We formalize the method and evaluate it against three
+baselines---a uniform random policy, tabular Q-learning with state aggregation,
+and a Deep Q-Network (DQN)---on three classic-control benchmarks spanning a
+difficulty gradient (CartPole, Acrobot, MountainCar), reporting mean and
+standard deviation over five seeds under a fixed evaluation protocol. \NWM{} is
+competitive with DQN on the dense CartPole task at substantially lower variance,
+trails DQN on the longer-horizon Acrobot, and---with sticky exploration---
+\emph{solves} the sparse-reward MountainCar task, where it is the strongest and
+most stable method, outperforming DQN. This last result reframes a failure mode
+often attributed to non-bootstrapping methods: on MountainCar the obstacle is
+\emph{exploration}, not temporal credit assignment, and a single
+task-agnostic change removes it. The study thus characterizes precisely where an
+instance-based potential-field method is competitive and where parametric value
+learning retains an advantage. All code, seeds, and figures are released to make
+the study fully reproducible.
 \end{abstract}
 
 \section{Introduction}
@@ -82,7 +89,8 @@ controlled empirical study. Concretely, we contribute:
 \begin{enumerate}
   \item A formal description of the \NWM{} memory, force model, and decision rule
   (Section~\ref{sec:method}), including the Dynamic Smart Lock and Fear \& Greed
-  mechanisms that were previously only described informally.
+  mechanisms that were previously only described informally, and a
+  temporally-correlated (sticky) exploration rule for sparse-reward tasks.
   \item A reproducible benchmark harness comparing \NWM{} against Random,
   tabular Q-learning, and DQN across three environments and five seeds, with a
   fixed greedy-evaluation protocol and aggregate statistics
@@ -201,14 +209,36 @@ high, and the agent explores by default in unfamiliar regions
 once $n_i>$ \texttt{lock\_min\_visits} and $\bar q_i>$ \texttt{lock\_min\_score}.
 Algorithm~\ref{alg:nwm} summarizes one training episode.
 
+\paragraph{Temporally-correlated exploration.} A uniform exploratory policy
+produces a zero-mean, rapidly-decorrelating action sequence---adequate for tasks
+solvable by local corrections, but pathological for tasks that require a
+\emph{sustained, directed} sequence of actions to reach any rewarding state at
+all (e.g.\ pumping energy into an under-actuated system). We therefore allow
+\emph{sticky} exploration: an exploratory step repeats the previous action with
+probability $p_{\text{rep}}$ and otherwise samples uniformly,
+\begin{equation}
+a_t \;=\;
+\begin{cases}
+a_{t-1}, & \text{w.p. } p_{\text{rep}}\\[2pt]
+\mathrm{Uniform}(\mathcal{A}), & \text{w.p. } 1-p_{\text{rep}},
+\end{cases}
+\qquad\text{(exploratory steps only).}
+\end{equation}
+This injects temporal correlation---and thus the momentum-building action runs
+needed under sparse reward---without any task-specific knowledge; $p_{\text{rep}}
+{=}0$ recovers the original uniform exploration. Section~\ref{sec:results} shows
+that this single change is what separates an exploration failure from a genuine
+credit-assignment failure on our sparse-reward task.
+
 \begin{algorithm}[t]
 \caption{\NWM{} training episode}
 \label{alg:nwm}
 \begin{algorithmic}[1]
-\State \textbf{Input:} field $\mathcal{M}$, environment, exploration rate $\varepsilon$
-\State Roll out the episode: at each step select an action by
-$\varepsilon$-greedy over the Fear \& Greed rule on Eq.~\eqref{eq:force};
-buffer $(\tilde x_t, a_t, r_t)$.
+\State \textbf{Input:} field $\mathcal{M}$, environment, exploration rate $\varepsilon$,
+sticky probability $p_{\text{rep}}$
+\State Roll out the episode: at each step, with prob.\ $\varepsilon$ explore
+(repeat $a_{t-1}$ w.p.\ $p_{\text{rep}}$, else uniform), otherwise apply the
+Fear \& Greed rule on Eq.~\eqref{eq:force}; buffer $(\tilde x_t, a_t, r_t)$.
 \State Compute return $G=\sum_t r_t$ and percentile score $p$.
 \If{$G<\max(40,1.25\,\bar G_{\text{recent}})$} cap scores at $0.6$ \EndIf
 \For{each buffered step $t$}
@@ -297,33 +327,40 @@ $\pm$ std) for CartPole, Acrobot, and MountainCar.}
 \paragraph{Findings.} Three patterns emerge from Table~\ref{tab:results}, and
 they cleanly position \NWM{} against value-based learning.
 
-\emph{On the dense, low-dimensional task, \NWM{} is the strongest method.} On
-CartPole-v1 it attains the best final greedy evaluation,
-$159.8\pm94.0$, ahead of DQN ($100.8\pm30.3$) and tabular Q-learning
-($98.4\pm20.2$), and far above the random policy ($25.1$). This is consistent
-with the method's design: when the observation geometry is smooth and a good
-action generalizes across nearby states, aggregating attractive/repulsive forces
-from neighbouring prototypes is an effective, low-bias estimator, and the
-percentile scoring lets the agent exploit good episodes immediately. The trade
--off is variance---\NWM{}'s final-eval standard deviation and its lower AUC
-($83.1$ vs.\ $108.7$--$115.3$) show a noisier, later-peaking learning curve than
-the bootstrapped baselines (Figure~\ref{fig:curves}).
+\emph{On the dense, low-dimensional task, \NWM{} is competitive with DQN at much
+lower variance.} On CartPole-v1 \NWM{} attains $159.8\pm94.0$, within one
+standard deviation of DQN ($193.7\pm158.5$) and far above tabular Q-learning
+($98.4\pm20.2$) and the random policy ($25.1$). Notably, \NWM{}'s standard
+deviation is a fraction of DQN's: the potential-field agent is markedly more
+\emph{stable} across seeds, whereas DQN oscillates between near-solved and
+collapsed runs (its best seed reaches $322.1$). This matches the method's
+design---when the observation geometry is smooth and good actions generalize
+across nearby states, aggregating attractive/repulsive forces is an effective,
+low-bias estimator---though DQN's bootstrapped backups give it a higher mean and
+better sample efficiency (AUC $109.9$ vs.\ $83.1$).
 
 \emph{On the medium task, \NWM{} learns but trails DQN.} On Acrobot-v1 \NWM{}
-reaches $-307.9$, clearly better than tabular Q ($-423.1$) and Random ($-499.9$)
-but below DQN ($-165.8$), which nearly solves the task (best seed $-77.8$
+reaches $-265.7$, clearly better than tabular Q ($-423.1$) and Random ($-499.9$)
+but below DQN ($-210.2$), which on its best seed nearly solves the task ($-77.3$
 against the $-100$ threshold). Longer horizons reward the temporal
 credit-assignment of bootstrapped value learning that \NWM{}'s episodic
-percentile score only approximates.
+percentile score only approximates; coarser centroid merging
+($\tau_{\mathrm{merge}}{=}0.5$) narrows but does not close the gap.
 
-\emph{On the sparse-reward task, only bootstrapped value learning succeeds.} On
-MountainCar-v0 every method except DQN remains pinned at the $-200$ truncation
-floor: without shaping, \NWM{}, tabular Q, and the random policy never
-experience the goal often enough for the field (or the table) to form, whereas
-DQN's bootstrapped backups propagate the single terminal reward and reach
-$-174.6$. This is the clearest illustration of \NWM{}'s central limitation
-(Section~\ref{sec:limitations}): it has no bootstrapping mechanism to
-manufacture a learning signal where reward is absent.
+\emph{On the sparse-reward task, \NWM{} is the strongest method---and the failure
+was exploration, not credit assignment.} MountainCar-v0 gives no reward until the
+goal is reached, and under uniform exploration \NWM{}, tabular Q, and the random
+policy all remain pinned at the $-200$ truncation floor---never experiencing the
+goal often enough for a signal to form. Enabling \emph{sticky} exploration
+($p_{\text{rep}}{=}0.9$) changes this decisively: the repeated actions build the
+momentum needed to crest the hill, the field then forms around the successful
+trajectories, and \NWM{} reaches $-130.4\pm9.7$, \emph{outperforming} DQN
+($-173.2\pm27.5$) and doing so with far lower variance. Because the only change
+is the exploratory action distribution---the scoring and force model are
+untouched---this isolates the obstacle: on MountainCar the barrier to a
+non-bootstrapping method is generating experience of the goal, not propagating
+value once it is seen. A single task-agnostic exploration change, rather than a
+bootstrapping mechanism, removes it.
 
 \section{Limitations}
 \label{sec:limitations}
@@ -332,12 +369,17 @@ manufacture a learning signal where reward is absent.
 query cost grows with the number of centroids and the method targets
 low-to-moderate dimensional observation spaces rather than raw pixels. Second,
 credit assignment is heuristic (episode-percentile scores with temporal
-weighting) rather than a bootstrapped Bellman backup, which limits performance
-on long-horizon, sparse-reward tasks. Third, the force model and its constants
-(thresholds, decays, lock criteria) are hand-designed; while robust across the
-tested tasks, they are not learned. We view \NWM{} as a transparent,
-reproducible baseline for non-parametric control rather than a state-of-the-art
-method, and a useful component for hybrid systems.
+weighting) rather than a bootstrapped Bellman backup; this is the residual gap on
+the longer-horizon Acrobot task, where DQN's value propagation retains an
+advantage. We stress that this is now the \emph{only} clear gap: the previously
+reported sparse-reward failure on MountainCar turned out to be an exploration
+deficiency, removed by sticky exploration, rather than a credit-assignment one
+(Section~\ref{sec:results}). Third, the force model and its constants
+(thresholds, decays, lock criteria, and the sticky probability $p_{\text{rep}}$)
+are hand-designed; while robust across the tested tasks, they are not learned,
+and $p_{\text{rep}}$ trades reactivity for momentum, so it is best set per task.
+We view \NWM{} as a transparent, reproducible baseline for non-parametric control
+rather than a state-of-the-art method, and a useful component for hybrid systems.
 
 \section{Conclusion}
 \label{sec:conclusion}

@@ -33,6 +33,13 @@ class TestNWMConfig:
         with pytest.raises(ValueError):
             NWMConfig(exploration_rate=1.5)  # Out of range
 
+        with pytest.raises(ValueError):
+            NWMConfig(exploration_repeat=1.5)  # Out of [0, 1]
+
+    def test_exploration_repeat_default_is_uniform(self):
+        """Default config keeps classic uniform exploration."""
+        assert NWMConfig().exploration_repeat == 0.0
+
 
 class TestNWMAgent:
     """Test suite for NWMAgent."""
@@ -69,6 +76,19 @@ class TestNWMAgent:
         # Even without training, should return valid action
         action = agent.select_action(state, training=False)
         assert 0 <= action < 2
+
+    def test_sticky_exploration_repeats_last_action(self):
+        """With exploration_repeat close to 1, exploratory steps repeat the last action."""
+        agent = NWMAgent(
+            state_dim=4, num_actions=3, config=NWMConfig(exploration_repeat=1.0), seed=0
+        )
+        agent._last_action = 2
+        # p=1.0 => always repeat the previous action.
+        assert all(agent._random_action() == 2 for _ in range(100))
+
+        # No previous action => falls back to a valid uniform draw.
+        agent._last_action = None
+        assert 0 <= agent._random_action() < 3
 
     def test_step_and_episode(self):
         """Test step processing and episode end."""

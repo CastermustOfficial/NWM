@@ -51,7 +51,9 @@ ENVIRONMENTS: dict[str, EnvSpec] = {
         q_high=(1.0, 1.0, 1.0, 1.0, 12.57, 28.27),
         q_bins=(6, 6, 6, 6, 8, 8),
         reward_threshold=-100.0,
-        nwm_overrides={"warmup_episodes": 20},
+        # Coarser merging aggregates the 6-D state into fewer, better-supported
+        # centroids, which stabilizes credit on this longer-horizon task.
+        nwm_overrides={"warmup_episodes": 20, "merge_threshold": 0.5},
     ),
     "mountaincar": EnvSpec(
         name="MountainCar-v0",
@@ -61,7 +63,13 @@ ENVIRONMENTS: dict[str, EnvSpec] = {
         q_high=(0.6, 0.07),
         q_bins=(20, 20),
         reward_threshold=-110.0,
-        nwm_overrides={"warmup_episodes": 20, "distance_cutoff": 3.0},
+        # Temporally-correlated exploration builds the momentum needed to reach
+        # the goal under this sparse reward; uniform random never solves it.
+        nwm_overrides={
+            "warmup_episodes": 20,
+            "distance_cutoff": 3.0,
+            "exploration_repeat": 0.9,
+        },
     ),
 }
 

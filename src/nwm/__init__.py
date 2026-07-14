@@ -30,7 +30,7 @@ Main Components
 - set_global_seed / make_rng: reproducibility helpers
 """
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 __author__ = "CastermustOfficial"
 
 from nwm.agents.nwm_agent import NWMAgent

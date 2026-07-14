@@ -56,6 +56,12 @@ class NWMConfig:
     lock_min_score : float
         Minimum average score required to lock a centroid. Default: 0.80
 
+    exploration_repeat : float
+        Probability of repeating the previous action instead of sampling a fresh
+        uniform one during exploratory steps ("sticky" exploration). Values in
+        ``(0, 1)`` build momentum for sparse-reward tasks (e.g. MountainCar);
+        ``0.0`` (default) is classic uniform exploration.
+
     seed : int | None
         Seed for the agent's private random generator. ``None`` (default) draws
         fresh OS entropy. Set an integer for reproducible runs. An explicit
@@ -92,6 +98,13 @@ class NWMConfig:
     repulsion_weight: float = 1.5
     lock_boost: float = 2.5
 
+    # --- Temporally-correlated ("sticky") exploration ---
+    # Probability of repeating the previous action instead of sampling a fresh
+    # uniform action during exploratory steps. Values in (0, 1) produce
+    # temporally-correlated exploration that builds momentum in environments
+    # requiring sustained torque (e.g. MountainCar). 0.0 = pure uniform.
+    exploration_repeat: float = 0.0
+
     # Reproducibility
     seed: int | None = None
 
@@ -111,3 +124,5 @@ class NWMConfig:
             raise ValueError("warmup_episodes must be non-negative")
         if not 0 < self.exploration_decay <= 1:
             raise ValueError("exploration_decay must be in (0, 1]")
+        if not 0 <= self.exploration_repeat <= 1:
+            raise ValueError("exploration_repeat must be between 0 and 1")

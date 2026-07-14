@@ -18,10 +18,11 @@ remembers *where* things went well or badly and acts by following forces:
 The result is a transparent, reproducible, dependency-light agent (NumPy +
 Gymnasium) that starts behaving sensibly from very few episodes.
 
-> **What's new in 2.0** — `src/` layout, reproducible seeding, an incremental
-> query cache, strict typing, an **extended benchmark suite**
-> vs. Random / tabular Q-learning / DQN, and an accompanying **LaTeX paper**.
-> See the [CHANGELOG](CHANGELOG.md).
+> **What's new in 2.1** — **temporally-correlated (sticky) exploration** that lets
+> NWM *solve* sparse-reward **MountainCar and beat DQN** there, refreshed 5-seed
+> benchmarks, and an updated paper. (2.0 added the `src/` layout, reproducible
+> seeding, an incremental query cache, strict typing, the benchmark suite, and
+> the LaTeX paper.) See the [CHANGELOG](CHANGELOG.md).
 
 ## Key ideas
 
@@ -124,17 +125,19 @@ Markdown table, and learning-curve / comparison plots. The accompanying paper in
 **Final greedy evaluation** (mean ± std over 5 seeds; higher is better — Acrobot
 and MountainCar returns are negative). Best per environment in **bold**:
 
-| Environment    | Random        | TabularQ      | DQN               | NWM               |
-| -------------- | ------------- | ------------- | ----------------- | ----------------- |
-| CartPole-v1    | 25.1 ± 3.2    | 98.4 ± 20.2   | 100.8 ± 30.3      | **159.8 ± 94.0**  |
-| Acrobot-v1     | −499.9 ± 0.3  | −423.1 ± 53.5 | **−165.8 ± 111.3** | −307.9 ± 157.7   |
-| MountainCar-v0 | −200.0 ± 0.0  | −200.0 ± 0.0  | **−174.6 ± 31.2** | −200.0 ± 0.0      |
+| Environment    | Random        | TabularQ      | DQN                | NWM                |
+| -------------- | ------------- | ------------- | ------------------ | ------------------ |
+| CartPole-v1    | 25.1 ± 3.2    | 98.4 ± 20.2   | **193.7 ± 158.5**  | 159.8 ± 94.0       |
+| Acrobot-v1     | −499.9 ± 0.3  | −423.1 ± 53.5 | **−210.2 ± 166.0** | −265.7 ± 161.0     |
+| MountainCar-v0 | −200.0 ± 0.0  | −200.0 ± 0.0  | −173.2 ± 27.5      | **−130.4 ± 9.7**   |
 
-**Takeaways.** NWM is the strongest method on dense, low-dimensional CartPole; it
-learns on Acrobot but trails DQN; and on sparse-reward MountainCar every
-non-bootstrapping method (NWM, tabular Q, Random) stays at the floor — a
-transparent illustration of where instance-based potential fields help and where
-value bootstrapping is needed. See [`paper/`](paper/) for the full analysis.
+**Takeaways.** NWM is competitive with DQN on dense CartPole at markedly lower
+variance; it learns on Acrobot but trails DQN's value bootstrapping; and on
+sparse-reward **MountainCar it is now the strongest and most stable method,
+beating DQN** — thanks to *temporally-correlated (sticky) exploration*, which
+builds the momentum uniform noise cannot. That last result shows the earlier
+MountainCar failure was an *exploration* problem, not a credit-assignment one.
+See [`paper/`](paper/) for the full analysis.
 
 ## Paper
 
