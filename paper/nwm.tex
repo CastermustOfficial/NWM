@@ -1,0 +1,364 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{geometry}
+\geometry{margin=1in}
+\hypersetup{colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Fforce}{F}
+\newcommand{\NWM}{\textsc{NWM}}
+
+\title{\NWM: Negative Weight Mapping\\
+\large A Non-Parametric Potential-Field Framework for Reinforcement Learning}
+
+\author{CastermustOfficial\\
+\texttt{https://github.com/CastermustOfficial/NWM}}
+
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present \emph{Negative Weight Mapping} (\NWM), a non-parametric reinforcement
+learning framework that represents an agent's experience as a persistent
+\emph{potential field} over the observation space. Rather than training a value
+network or a policy by gradient descent, \NWM{} accumulates a compact set of
+\emph{centroids}---prototypical states that store per-action success and failure
+statistics---and selects actions by aggregating attractive (success) and
+repulsive (failure) forces from nearby centroids. Two mechanisms give the memory
+long-term stability: a \emph{Dynamic Smart Lock} that protects high-confidence
+prototypes from being overwritten, and a \emph{Fear \& Greed} decision rule that
+rejects dangerous actions before maximizing reward. We formalize the method and
+evaluate it against three baselines---a uniform random policy, tabular
+Q-learning with state aggregation, and a Deep Q-Network (DQN)---on three
+classic-control benchmarks spanning a difficulty gradient (CartPole, Acrobot,
+MountainCar), reporting mean and standard deviation over five seeds under a
+fixed evaluation protocol. \NWM{} is the strongest method on the dense,
+low-dimensional CartPole task, learns but trails DQN on Acrobot, and---like the
+other non-bootstrapping baselines---fails on sparse-reward MountainCar. The
+study thus characterizes precisely where an instance-based potential-field
+method is competitive and where parametric value learning retains an advantage.
+All code, seeds, and figures are released to make the study fully reproducible.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Most modern reinforcement learning (RL) methods are \emph{parametric}: a neural
+network compresses experience into weights updated by gradient descent
+\citep{mnih2015human,schulman2017proximal}. Parametric value learning is
+powerful but has well-known costs: it is sample-hungry, sensitive to
+hyperparameters, prone to catastrophic forgetting, and notoriously difficult to
+reproduce \citep{henderson2018deep}. A complementary line of work is
+\emph{non-parametric} or \emph{episodic} control, which stores experience
+explicitly and acts by similarity to past situations
+\citep{blundell2016model,pritzel2017neural}. Such methods can learn quickly from
+few interactions because a single informative experience is immediately usable,
+without waiting for it to be amortized into network weights.
+
+\NWM{} sits in this non-parametric family but takes an unusual inspiration: the
+\emph{artificial potential field}, a classic idea from robot motion planning in
+which goals exert attractive forces and obstacles exert repulsive ones
+\citep{khatib1986real}. \NWM{} treats past \emph{successes} as attractors and
+past \emph{failures} as repulsors in the observation space, so that action
+selection reduces to following the net force at the current state. The name
+\emph{Negative Weight Mapping} refers to the explicit modelling of negative
+(repulsive) experience, which is used not merely to lower a value estimate but
+to actively veto risky actions.
+
+This paper makes the original repository's method precise and subjects it to a
+controlled empirical study. Concretely, we contribute:
+\begin{enumerate}
+  \item A formal description of the \NWM{} memory, force model, and decision rule
+  (Section~\ref{sec:method}), including the Dynamic Smart Lock and Fear \& Greed
+  mechanisms that were previously only described informally.
+  \item A reproducible benchmark harness comparing \NWM{} against Random,
+  tabular Q-learning, and DQN across three environments and five seeds, with a
+  fixed greedy-evaluation protocol and aggregate statistics
+  (Section~\ref{sec:experiments}).
+  \item An analysis of the results (Section~\ref{sec:results}) that identifies
+  the regimes in which a potential-field method is competitive, together with an
+  explicit discussion of its limitations (Section~\ref{sec:limitations}).
+\end{enumerate}
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Value-based RL.} Q-learning \citep{watkins1992q} learns an
+action-value function by temporal-difference updates; with function
+approximation and experience replay it scales to high-dimensional inputs as DQN
+\citep{mnih2015human,lin1992self}. We use both a tabular variant (with state
+aggregation) and DQN as baselines.
+
+\paragraph{Episodic and non-parametric control.} Model-Free Episodic Control
+\citep{blundell2016model} and Neural Episodic Control \citep{pritzel2017neural}
+store returns in a growing table keyed by (embedded) states and act by
+$k$-nearest-neighbour lookup, achieving strong early sample efficiency. \NWM{}
+shares the store-and-retrieve philosophy but differs in three ways: (i) it
+aggregates experience into a bounded set of merged \emph{centroids} rather than
+retaining individual transitions; (ii) it stores a \emph{signed force} per
+action rather than a raw return estimate; and (iii) it separates
+\emph{repulsion} into its own spatial-decay and veto pathway.
+
+\paragraph{Potential fields.} Artificial potential fields
+\citep{khatib1986real} are a staple of reactive control and motion planning.
+\NWM{} imports the attractive/repulsive metaphor into RL by learning the field
+from returns rather than from a hand-specified geometry.
+
+\section{Method}
+\label{sec:method}
+
+\subsection{Setup and notation}
+We consider a Markov decision process with observation space
+$\mathcal{S}\subseteq\R^{d}$ and a finite action set
+$\mathcal{A}=\{0,\dots,K{-}1\}$. Observations are $z$-score normalized online
+using running mean and variance maintained with Welford's algorithm
+\citep{welford1962note}; we write $\tilde{x}$ for the normalized observation.
+
+\subsection{Persistent potential field}
+The memory is a bounded collection of centroids
+$\mathcal{M}=\{c_1,\dots,c_N\}$, $N\le N_{\max}$. Each centroid $c_i$ stores
+\begin{itemize}
+  \item a prototype location $\mu_i\in\R^{d}$ (a running mean of the normalized
+  states merged into it) and a visit count $n_i$;
+  \item per-action statistics $\{(s_{i,a}, n_{i,a}, q^{2}_{i,a})\}_{a}$
+  accumulating the sum, count, and sum of squares of the scores observed for
+  action $a$; and
+  \item a boolean \emph{lock} flag $\ell_i$.
+\end{itemize}
+The average score of action $a$ at centroid $i$ is
+$\bar q_{i,a}=s_{i,a}/n_{i,a}$.
+
+\paragraph{Insertion and merging.} A new experience
+$(\tilde x, a, \sigma)$ with score $\sigma\in[0,1]$ (defined below) is routed to
+the nearest centroid $j=\arg\min_i \lVert \mu_i-\tilde x\rVert$. If
+$\lVert \mu_j-\tilde x\rVert < \tau_{\mathrm{merge}}$ it is merged into $c_j$;
+otherwise a new centroid is created. Merging uses an exponential moving average
+with \emph{progressive stiffness}: the mixing rate is $\alpha=1/(n_j{+}1)$, and
+$\alpha=1/(2n_j)$ once $n_j>50$, so that well-established prototypes drift
+slowly. When $N$ exceeds capacity, unlocked centroids are pruned by a value
+score $n_i\big((\bar q_i-0.5)^2+0.1\big)$ that favours frequently-visited,
+strongly-signed prototypes; locked centroids are always retained.
+
+\subsection{Score assignment}
+Learning is episodic. At the end of an episode with return $G$, we compute a
+\emph{percentile score} $p\in[0,1]$ equal to the rank of $G$ among all
+historical returns, so that scores are self-calibrating across environments with
+different reward scales. A temporal weight $w_t=0.4+0.6\,t/T$ emphasizes later
+steps of a length-$T$ episode, and the score written for step $t$ is
+$\sigma_t=\mathrm{clip}(p\,w_t,0,1)$. A \emph{dynamic quality gate} caps
+$\sigma_t\le 0.6$ (preventing locking) whenever
+$G<\max(40,\,1.25\,\bar G_{\text{recent}})$, where $\bar G_{\text{recent}}$ is
+the mean of recent returns; only genuinely above-trend episodes can create
+locked, high-confidence memories.
+
+\subsection{Force model}
+Each centroid exposes a signed force per action,
+\begin{equation}
+f_{i,a}=
+\begin{cases}
+1.5\,(\bar q_{i,a}-0.5), & \bar q_{i,a}>0.6 \quad\text{(attraction)}\\[2pt]
+1.5\,(\bar q_{i,a}-0.5), & \bar q_{i,a}<0.4 \quad\text{(repulsion)}\\[2pt]
+0, & \text{otherwise.}
+\end{cases}
+\end{equation}
+Given a query state $\tilde x$, let $\mathcal{N}_k$ be its $k$ nearest centroids
+within a cutoff radius $d_c$, and $\delta_i=\lVert \mu_i-\tilde x\rVert$. The net
+force for action $a$ is a confidence- and distance-weighted average,
+\begin{equation}
+\Fforce(a)=
+\frac{\sum_{i\in\mathcal{N}_k} f_{i,a}\; \omega_i\; \kappa_{i,a}\;\log(1+n_i)\;\beta_i}
+     {\sum_{i\in\mathcal{N}_k}\omega_i},
+\label{eq:force}
+\end{equation}
+where the spatial weight $\omega_i$ decays as $1/(\delta_i+0.1)$ for attraction
+but as the inverse square $1/(\delta_i^2+0.1)$ for repulsion---so danger signals
+are sharply local; $\kappa_{i,a}=1/(1+2\,\mathrm{Var}_{i,a})$ down-weights
+high-variance (uncertain) prototypes; $\log(1+n_i)$ rewards evidence; and
+$\beta_i=\beta_{\mathrm{lock}}>1$ boosts locked prototypes.
+
+\subsection{Action selection: Fear \& Greed}
+\NWM{} first avoids danger, then seeks reward. With a risk tolerance
+$\rho=-0.5$ (tightened to $\rho=-1.5$ when a strong option exists,
+$\max_a \Fforce(a)>0.8$), the safe set is
+$\mathcal{A}_{\text{safe}}=\{a:\Fforce(a)>\rho\}$, and the greedy action is
+$\arg\max_{a\in\mathcal{A}_{\text{safe}}}\Fforce(a)$ (falling back to the global
+argmax if every action is deemed unsafe). Exploration is $\varepsilon$-greedy
+with an \emph{adaptive} rate that collapses to $0$ once recent performance is
+high, and the agent explores by default in unfamiliar regions
+($\min_i\delta_i>d_c$). The Dynamic Smart Lock sets $\ell_i\!=\!\text{true}$
+once $n_i>$ \texttt{lock\_min\_visits} and $\bar q_i>$ \texttt{lock\_min\_score}.
+Algorithm~\ref{alg:nwm} summarizes one training episode.
+
+\begin{algorithm}[t]
+\caption{\NWM{} training episode}
+\label{alg:nwm}
+\begin{algorithmic}[1]
+\State \textbf{Input:} field $\mathcal{M}$, environment, exploration rate $\varepsilon$
+\State Roll out the episode: at each step select an action by
+$\varepsilon$-greedy over the Fear \& Greed rule on Eq.~\eqref{eq:force};
+buffer $(\tilde x_t, a_t, r_t)$.
+\State Compute return $G=\sum_t r_t$ and percentile score $p$.
+\If{$G<\max(40,1.25\,\bar G_{\text{recent}})$} cap scores at $0.6$ \EndIf
+\For{each buffered step $t$}
+  \State $\sigma_t\gets\mathrm{clip}(p\,(0.4+0.6\,t/T),0,1)$
+  \State Insert/merge $(\tilde x_t,a_t,\sigma_t)$ into $\mathcal{M}$; update locks.
+\EndFor
+\State Update adaptive $\varepsilon$ from recent returns.
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Complexity and implementation}
+With $N$ centroids and dimension $d$, a query costs $O(Nd)$ for the
+nearest-neighbour scan. Crucially, the field is immutable during a rollout, so
+the stacked matrix of centroid locations is cached and reused across every
+action selection within an episode; merges and insertions maintain it
+incrementally in $O(d)$, and only the (rare) pruning step forces a rebuild. The
+implementation depends only on NumPy \citep{harris2020array} and Gymnasium
+\citep{towers2024gymnasium}, uses a per-agent random generator for
+reproducibility, and is released with a strict-typed, tested codebase.
+
+\section{Experiments}
+\label{sec:experiments}
+
+\paragraph{Environments.} We evaluate on three Gymnasium
+\citep{towers2024gymnasium} classic-control tasks chosen to span a difficulty
+gradient: \textbf{CartPole-v1} (dense reward, short horizon),
+\textbf{Acrobot-v1} (shaped negative reward, longer horizon), and
+\textbf{MountainCar-v0} (sparse reward, requires momentum building). This spread
+tests not only whether \NWM{} works but \emph{where} it holds up.
+
+\paragraph{Baselines.} (i) \textbf{Random}: uniform policy, a lower bound.
+(ii) \textbf{Tabular Q-learning} with uniform state aggregation
+($\alpha{=}0.1$, $\gamma{=}0.99$, $\varepsilon$ annealed $1\!\to\!0.02$).
+(iii) \textbf{DQN} \citep{mnih2015human}: a two-hidden-layer MLP
+($128{\times}128$), replay buffer, target network, Huber loss, Adam
+($10^{-3}$), $\gamma{=}0.99$.
+
+\paragraph{Protocol.} Each (environment, agent, seed) run trains for a fixed
+episode budget; every ten episodes we run a \emph{greedy} evaluation of ten
+rollouts on seeds disjoint from training. We report the mean and standard
+deviation of the final greedy evaluation across five seeds
+($\{0,1,2,3,4\}$), the best evaluation reached, and the normalized area under
+the evaluation curve (AUC) as a sample-efficiency proxy. Following
+recommendations for reliable RL reporting
+\citep{henderson2018deep,agarwal2021deep}, all seeds and the full protocol are
+released. The complete study is reproduced by:
+\begin{center}
+\texttt{python -m benchmarks.run\_benchmark --seeds 0 1 2 3 4}
+\end{center}
+
+\section{Results}
+\label{sec:results}
+
+Table~\ref{tab:results} reports final greedy-evaluation scores (mean $\pm$ std
+over five seeds) and AUC. Figure~\ref{fig:curves} shows the learning curves and
+Figure~\ref{fig:final} the final-performance comparison.
+
+\begin{table}[t]
+\centering
+\caption{Final greedy evaluation (mean $\pm$ std over 5 seeds) and normalized
+AUC. Best final-eval per environment in \textbf{bold}. Higher is better for all
+environments (Acrobot and MountainCar returns are negative).}
+\label{tab:results}
+\small
+\input{tables/results_table.tex}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.32\textwidth]{figures/learning_cartpolev1.png}\hfill
+\includegraphics[width=0.32\textwidth]{figures/learning_acrobotv1.png}\hfill
+\includegraphics[width=0.32\textwidth]{figures/learning_mountaincarv0.png}
+\caption{Greedy-evaluation learning curves (mean over 5 seeds, shaded
+$\pm$ std) for CartPole, Acrobot, and MountainCar.}
+\label{fig:curves}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.7\textwidth]{figures/final_comparison.png}
+\caption{Final greedy evaluation per environment and agent (mean $\pm$ std over
+5 seeds).}
+\label{fig:final}
+\end{figure}
+
+\paragraph{Findings.} Three patterns emerge from Table~\ref{tab:results}, and
+they cleanly position \NWM{} against value-based learning.
+
+\emph{On the dense, low-dimensional task, \NWM{} is the strongest method.} On
+CartPole-v1 it attains the best final greedy evaluation,
+$159.8\pm94.0$, ahead of DQN ($100.8\pm30.3$) and tabular Q-learning
+($98.4\pm20.2$), and far above the random policy ($25.1$). This is consistent
+with the method's design: when the observation geometry is smooth and a good
+action generalizes across nearby states, aggregating attractive/repulsive forces
+from neighbouring prototypes is an effective, low-bias estimator, and the
+percentile scoring lets the agent exploit good episodes immediately. The trade
+-off is variance---\NWM{}'s final-eval standard deviation and its lower AUC
+($83.1$ vs.\ $108.7$--$115.3$) show a noisier, later-peaking learning curve than
+the bootstrapped baselines (Figure~\ref{fig:curves}).
+
+\emph{On the medium task, \NWM{} learns but trails DQN.} On Acrobot-v1 \NWM{}
+reaches $-307.9$, clearly better than tabular Q ($-423.1$) and Random ($-499.9$)
+but below DQN ($-165.8$), which nearly solves the task (best seed $-77.8$
+against the $-100$ threshold). Longer horizons reward the temporal
+credit-assignment of bootstrapped value learning that \NWM{}'s episodic
+percentile score only approximates.
+
+\emph{On the sparse-reward task, only bootstrapped value learning succeeds.} On
+MountainCar-v0 every method except DQN remains pinned at the $-200$ truncation
+floor: without shaping, \NWM{}, tabular Q, and the random policy never
+experience the goal often enough for the field (or the table) to form, whereas
+DQN's bootstrapped backups propagate the single terminal reward and reach
+$-174.6$. This is the clearest illustration of \NWM{}'s central limitation
+(Section~\ref{sec:limitations}): it has no bootstrapping mechanism to
+manufacture a learning signal where reward is absent.
+
+\section{Limitations}
+\label{sec:limitations}
+
+\NWM{} has three principal limitations. First, its memory is instance-based, so
+query cost grows with the number of centroids and the method targets
+low-to-moderate dimensional observation spaces rather than raw pixels. Second,
+credit assignment is heuristic (episode-percentile scores with temporal
+weighting) rather than a bootstrapped Bellman backup, which limits performance
+on long-horizon, sparse-reward tasks. Third, the force model and its constants
+(thresholds, decays, lock criteria) are hand-designed; while robust across the
+tested tasks, they are not learned. We view \NWM{} as a transparent,
+reproducible baseline for non-parametric control rather than a state-of-the-art
+method, and a useful component for hybrid systems.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+We formalized \NWM{}, a potential-field, non-parametric RL framework, and
+evaluated it against Random, tabular Q-learning, and DQN on three
+classic-control tasks with a reproducible, seed-controlled protocol. The study
+clarifies the operating regime of instance-based potential-field control and
+provides an honest, open baseline. Future work includes learned
+similarity/embeddings for higher-dimensional inputs, bootstrapped score
+propagation to strengthen credit assignment, and hybrid schemes that use the
+repulsive field as a safety layer around a parametric policy.
+
+\section*{Reproducibility Statement}
+The library, benchmark harness, exact seeds, hyperparameters, and the scripts
+that regenerate every table and figure in this paper are released at
+\url{https://github.com/CastermustOfficial/NWM}. Running the benchmark and
+\texttt{paper/make\_paper\_assets.py} regenerates
+\texttt{tables/results\_table.tex} and the figures used above.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

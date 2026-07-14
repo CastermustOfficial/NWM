@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "NWM: Negative Weight Mapping — A Non-Parametric Potential-Field Framework for Reinforcement Learning"
+abstract: >-
+  NWM is a non-parametric reinforcement learning framework that represents an
+  agent's experience as a persistent potential field over the observation space,
+  selecting actions from attractive (success) and repulsive (failure) forces.
+type: software
+authors:
+  - name: "CastermustOfficial"
+    website: "https://github.com/CastermustOfficial"
+version: "2.0.0"
+license: MIT
+repository-code: "https://github.com/CastermustOfficial/NWM"
+url: "https://github.com/CastermustOfficial/NWM"
+keywords:
+  - reinforcement-learning
+  - potential-field
+  - non-parametric
+  - episodic-control
+  - machine-learning
