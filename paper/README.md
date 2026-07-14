@@ -18,7 +18,9 @@ python paper/make_paper_assets.py
 
 ## Building the PDF
 
-Requires a TeX distribution (TeX Live / MiKTeX) with `latexmk`:
+A prebuilt **[`nwm.pdf`](nwm.pdf)** is committed alongside the source, so you can
+read the paper without a LaTeX toolchain. To rebuild it you need a TeX
+distribution (TeX Live / MiKTeX) with `latexmk`:
 
 ```bash
 cd paper
