@@ -90,6 +90,39 @@ class TestNWMAgent:
         agent._last_action = None
         assert 0 <= agent._random_action() < 3
 
+    def test_adaptive_repeat_ramps_on_flat_returns(self):
+        """adaptive_repeat ramps stickiness while returns are flat, then stops."""
+        agent = NWMAgent(
+            state_dim=2,
+            num_actions=2,
+            config=NWMConfig(adaptive_repeat=True, warmup_episodes=5),
+            seed=0,
+        )
+        state = np.zeros(2, dtype=np.float32)
+
+        # 15 identical episodes (flat returns) -> ramp should engage after 10.
+        for _ in range(15):
+            for i in range(3):
+                agent.step(state, 0, -1.0, state, done=(i == 2))
+        assert agent._exploration_repeat > 0.0
+        ramped = agent._exploration_repeat
+
+        # A different return breaks the flatline -> ramping stops (holds).
+        for i in range(2):
+            agent.step(state, 0, 5.0, state, done=(i == 1))
+        for i in range(3):
+            agent.step(state, 0, -1.0, state, done=(i == 2))
+        assert agent._exploration_repeat == ramped
+
+    def test_adaptive_repeat_off_by_default(self):
+        """Without adaptive_repeat, flat returns never change stickiness."""
+        agent = NWMAgent(state_dim=2, num_actions=2, config=NWMConfig(warmup_episodes=5), seed=0)
+        state = np.zeros(2, dtype=np.float32)
+        for _ in range(15):
+            for i in range(3):
+                agent.step(state, 0, -1.0, state, done=(i == 2))
+        assert agent._exploration_repeat == 0.0
+
     def test_step_and_episode(self):
         """Test step processing and episode end."""
         agent = NWMAgent(state_dim=4, num_actions=2)

@@ -42,7 +42,8 @@ prototypes from being overwritten, and a \emph{Fear \& Greed} decision rule that
 rejects dangerous actions before maximizing reward. To act well under sparse
 reward, \NWM{} additionally uses \emph{temporally-correlated (sticky)
 exploration}, which repeats exploratory actions to build the sustained momentum
-that uniform noise cannot. We formalize the method and evaluate it against three
+that uniform noise cannot---and whose repeat probability can self-tune from the
+agent's own reward history. We formalize the method and evaluate it against three
 baselines---a uniform random policy, tabular Q-learning with state aggregation,
 and a Deep Q-Network (DQN)---on three classic-control benchmarks spanning a
 difficulty gradient (CartPole, Acrobot, MountainCar), reporting mean and
@@ -230,6 +231,14 @@ needed under sparse reward---without any task-specific knowledge; $p_{\text{rep}
 that this single change is what separates an exploration failure from a genuine
 credit-assignment failure on our sparse-reward task.
 
+Rather than hand-tuning $p_{\text{rep}}$, it can also be set \emph{adaptively}:
+while the recent returns are perfectly flat---the signature of a sparse-reward
+task whose goal has never been reached, since every episode then scores
+identically---$p_{\text{rep}}$ is ramped up by $0.1$ per episode (to at most
+$0.95$), and the ramp stops as soon as returns vary. The trigger consumes only
+the agent's own reward history, so the mechanism remains fully task-agnostic;
+on tasks that give a learning signal from the first episodes it never fires.
+
 \begin{algorithm}[t]
 \caption{\NWM{} training episode}
 \label{alg:nwm}
@@ -360,7 +369,11 @@ is the exploratory action distribution---the scoring and force model are
 untouched---this isolates the obstacle: on MountainCar the barrier to a
 non-bootstrapping method is generating experience of the goal, not propagating
 value once it is seen. A single task-agnostic exploration change, rather than a
-bootstrapping mechanism, removes it.
+bootstrapping mechanism, removes it. The \emph{adaptive} variant of
+Section~\ref{sec:method}, which requires no tuning at all, reaches
+$-162.2\pm28.8$ over the same five seeds---weaker than the hand-tuned value but
+still ahead of DQN---showing that even the choice of $p_{\text{rep}}$ can be
+left to the agent.
 
 \section{Limitations}
 \label{sec:limitations}
@@ -377,9 +390,31 @@ deficiency, removed by sticky exploration, rather than a credit-assignment one
 (Section~\ref{sec:results}). Third, the force model and its constants
 (thresholds, decays, lock criteria, and the sticky probability $p_{\text{rep}}$)
 are hand-designed; while robust across the tested tasks, they are not learned,
-and $p_{\text{rep}}$ trades reactivity for momentum, so it is best set per task.
+and $p_{\text{rep}}$ trades reactivity for momentum, so it is best set per task
+(or left to the adaptive ramp of Section~\ref{sec:method}).
 We view \NWM{} as a transparent, reproducible baseline for non-parametric control
 rather than a state-of-the-art method, and a useful component for hybrid systems.
+
+\paragraph{Negative results.} We also report what did \emph{not} work, since it
+sharpens the picture of where the residual Acrobot gap comes from. We
+implemented (i) \emph{return-to-go percentile credit}, scoring each step by the
+percentile rank of its discounted return-to-go $G_t$ against a rolling history,
+with truncated episodes bootstrapping their tail from the running mean per-step
+reward; and (ii) an \emph{advantage force model}, replacing the absolute
+per-centroid force with each action's score advantage over the \emph{other}
+actions observed at the same centroid (an argmax-style local comparison). Both
+were ablated on the protocol of Section~\ref{sec:experiments}: (i) was neutral
+on MountainCar and clearly worse on Acrobot ($-378$ to $-400$ vs.\ $-247$ for
+the shipped configuration over three seeds), because absolute per-step scores
+conflate distance-from-goal with action quality, turning the early states of
+good episodes repulsive; (ii) was worse still ($-375$ to $-443$), including
+when paired with the proven episode-level credit. The lesson is structural:
+\NWM{}'s decision rule---the Fear \& Greed thresholds, the safety veto, the
+confidence weights---is co-designed around absolute scores with $0.5$ as the
+neutral point, and swapping the force formula without redesigning the rule
+breaks the system. Closing the long-horizon gap appears to require joint
+redesign, not a drop-in bootstrapping patch; neither variant ships in the
+released code.
 
 \section{Conclusion}
 \label{sec:conclusion}

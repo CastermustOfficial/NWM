@@ -281,6 +281,15 @@ class NWMAgent:
         if total_reward > self.best_reward:
             self.best_reward = total_reward
 
+        # Adaptive stickiness: while returns are perfectly flat (no learning
+        # signal at all -- sparse reward never reached), ramp up temporally-
+        # correlated exploration. Runs during warmup too, since that is when
+        # exploration momentum matters most; stops as soon as returns vary.
+        if self.config.adaptive_repeat and len(self._recent_rewards) >= 10:
+            recent = self._recent_rewards
+            if max(recent) - min(recent) < 1e-9:
+                self._exploration_repeat = min(0.95, self._exploration_repeat + 0.1)
+
         # Skip learning during warmup
         if self.total_episodes < self.config.warmup_episodes:
             self._get_percentile_score(total_reward)

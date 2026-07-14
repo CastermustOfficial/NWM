@@ -62,6 +62,13 @@ class NWMConfig:
         ``(0, 1)`` build momentum for sparse-reward tasks (e.g. MountainCar);
         ``0.0`` (default) is classic uniform exploration.
 
+    adaptive_repeat : bool
+        When True, ``exploration_repeat`` auto-ramps (+0.05 per episode, up to
+        0.95) while recent returns are perfectly flat -- the signature of a
+        sparse-reward task whose goal has never been reached -- and stops as
+        soon as returns vary. Solves MountainCar with no hand-tuning. Keep it
+        off (default) for tasks that give a learning signal from the start.
+
     seed : int | None
         Seed for the agent's private random generator. ``None`` (default) draws
         fresh OS entropy. Set an integer for reproducible runs. An explicit
@@ -104,6 +111,12 @@ class NWMConfig:
     # temporally-correlated exploration that builds momentum in environments
     # requiring sustained torque (e.g. MountainCar). 0.0 = pure uniform.
     exploration_repeat: float = 0.0
+
+    # When True, exploration_repeat auto-ramps (+0.05 per episode, up to 0.95)
+    # while recent returns are constant -- i.e. the environment is giving no
+    # learning signal at all, the signature of a sparse-reward task whose goal
+    # has never been reached. It stops ramping as soon as returns vary.
+    adaptive_repeat: bool = False
 
     # Reproducibility
     seed: int | None = None

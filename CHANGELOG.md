@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-07-14
+
+A small, honest release: one new self-tuning exploration feature, plus documented
+negative results from a credit-assignment research push. Public API unchanged;
+benchmark configurations and headline numbers are identical to 2.1.0.
+
+### Added
+- **Adaptive stickiness** (`NWMConfig.adaptive_repeat`, default `False`): while
+  recent returns are perfectly flat -- the signature of a sparse-reward task
+  whose goal has never been reached -- `exploration_repeat` auto-ramps
+  (+0.1 per episode, up to 0.95, active during warmup too) and stops as soon as
+  returns vary. On MountainCar this reaches **-162.2 ± 28.8** over 5 seeds with
+  *zero* task-specific tuning, beating DQN (-173.2 ± 27.5); the hand-tuned
+  `exploration_repeat=0.9` remains stronger (-130.4 ± 9.7) and stays the
+  benchmark configuration. Keep the flag off for tasks that give a learning
+  signal from the start (on Acrobot the early flat window makes it harmful).
+
+### Negative results (tried, measured, rejected)
+- **Return-to-go percentile credit** (per-step G_t ranked against a rolling
+  history, with truncation-aware bootstrapping): neutral on MountainCar,
+  clearly worse on Acrobot (-378 to -400 vs. -247 baseline over 3 seeds).
+  Diagnosis: absolute per-step scores conflate distance-from-goal with action
+  quality, turning early states repulsive.
+- **Advantage force model** (per-action score vs. the other actions in the same
+  centroid, argmax-style): worse still (-375 to -443), including with the
+  proven episode credit. NWM's decision rule (Fear & Greed thresholds, veto,
+  confidence weights) is co-designed around absolute scores with 0.5 neutral;
+  changing force semantics requires redesigning the rule, not swapping a
+  formula. Both experiments were removed from the codebase; only the paper
+  documents them.
+
 ## [2.1.0] - 2026-07-14
 
 A performance release. The headline is **temporally-correlated (sticky)
@@ -76,5 +107,6 @@ Python API (`NWM`, `NWMAgent`, `NWMConfig`, `PersistentCentroid`,
   memory, Dynamic Smart Lock, adaptive exploration, examples, and a basic test
   suite.
 
+[2.2.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.2.0
 [2.1.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.1.0
 [2.0.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.0.0

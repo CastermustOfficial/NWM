@@ -18,11 +18,12 @@ remembers *where* things went well or badly and acts by following forces:
 The result is a transparent, reproducible, dependency-light agent (NumPy +
 Gymnasium) that starts behaving sensibly from very few episodes.
 
-> **What's new in 2.1** — **temporally-correlated (sticky) exploration** that lets
-> NWM *solve* sparse-reward **MountainCar and beat DQN** there, refreshed 5-seed
-> benchmarks, and an updated paper. (2.0 added the `src/` layout, reproducible
-> seeding, an incremental query cache, strict typing, the benchmark suite, and
-> the LaTeX paper.) See the [CHANGELOG](CHANGELOG.md).
+> **What's new in 2.2** — **adaptive stickiness** (`adaptive_repeat`): exploration
+> auto-ramps when the task gives no learning signal, matching DQN on MountainCar
+> with *zero* hand-tuning; plus documented negative results on bootstrapped
+> credit assignment. (2.1 added sticky exploration itself — NWM solves
+> MountainCar and beats DQN there; 2.0 added the `src/` layout, seeding, the
+> benchmark suite, and the LaTeX paper.) See the [CHANGELOG](CHANGELOG.md).
 
 ## Key ideas
 
@@ -137,7 +138,10 @@ sparse-reward **MountainCar it is now the strongest and most stable method,
 beating DQN** — thanks to *temporally-correlated (sticky) exploration*, which
 builds the momentum uniform noise cannot. That last result shows the earlier
 MountainCar failure was an *exploration* problem, not a credit-assignment one.
-See [`paper/`](paper/) for the full analysis.
+With `adaptive_repeat=True` the stickiness self-tunes: MountainCar reaches
+−162.2 ± 28.8 (still ahead of DQN) with **no task-specific tuning at all**.
+See [`paper/`](paper/) for the full analysis, including negative results on
+bootstrapped credit assignment.
 
 ## Paper
 
