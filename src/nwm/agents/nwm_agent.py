@@ -304,7 +304,13 @@ class NWMAgent:
         else:
             avg_recent = total_reward
 
-        dynamic_threshold = max(40.0, avg_recent * 1.25)
+        if self.config.relative_gate and avg_recent <= 0:
+            # Sign-aware gate: "25% better than the recent average" also holds
+            # for negative returns. The legacy max(40, avg*1.25) is always 40
+            # there, capping every episode at 0.6 and disabling attraction.
+            dynamic_threshold = avg_recent + 0.25 * abs(avg_recent)
+        else:
+            dynamic_threshold = max(40.0, avg_recent * 1.25)
         self._last_dynamic_threshold = dynamic_threshold
 
         if total_reward < dynamic_threshold:
@@ -314,7 +320,12 @@ class NWMAgent:
         n = len(self._current_states)
         for i in range(n):
             t_weight = 0.4 + 0.6 * (i / n)  # Later steps weighted higher
-            weighted_score = score * t_weight
+            if self.config.credit_blend:
+                # Blend toward neutral 0.5: early steps of good episodes stay
+                # mildly attractive instead of being pushed into repulsion.
+                weighted_score = 0.5 + (score - 0.5) * t_weight
+            else:
+                weighted_score = score * t_weight
             final_score = max(0.0, min(1.0, weighted_score))
 
             self.field.add(self._current_states[i], self._current_actions[i], final_score)

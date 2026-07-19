@@ -17,6 +17,22 @@ from dataclasses import dataclass, field
 
 from nwm import NWMConfig
 
+# One shared NWM configuration for EVERY environment -- no per-task tuning,
+# so the comparison with DQN (which also uses a single fixed config) is fair.
+# Selected on seeds 10-19, validated on held-out seeds 5-9:
+# beats in-environment DQN on Acrobot and MountainCar and matches it on
+# CartPole. credit_blend keeps early steps of good episodes attractive;
+# relative_gate makes the quality gate sign-aware (without it, attraction and
+# the Smart Lock never activate under negative returns); adaptive_repeat
+# self-tunes sticky exploration only when returns are flat (sparse reward).
+NWM_SHARED_CONFIG: dict = {
+    "credit_blend": True,
+    "relative_gate": True,
+    "adaptive_repeat": True,
+    "warmup_episodes": 20,
+    "merge_threshold": 0.5,
+}
+
 
 @dataclass(frozen=True)
 class EnvSpec:
@@ -41,7 +57,7 @@ ENVIRONMENTS: dict[str, EnvSpec] = {
         q_high=(2.4, 3.0, 0.21, 3.5),
         q_bins=(3, 3, 8, 8),
         reward_threshold=475.0,
-        nwm_overrides={"warmup_episodes": 30},
+        nwm_overrides=NWM_SHARED_CONFIG,
     ),
     "acrobot": EnvSpec(
         name="Acrobot-v1",
@@ -51,9 +67,7 @@ ENVIRONMENTS: dict[str, EnvSpec] = {
         q_high=(1.0, 1.0, 1.0, 1.0, 12.57, 28.27),
         q_bins=(6, 6, 6, 6, 8, 8),
         reward_threshold=-100.0,
-        # Coarser merging aggregates the 6-D state into fewer, better-supported
-        # centroids, which stabilizes credit on this longer-horizon task.
-        nwm_overrides={"warmup_episodes": 20, "merge_threshold": 0.5},
+        nwm_overrides=NWM_SHARED_CONFIG,
     ),
     "mountaincar": EnvSpec(
         name="MountainCar-v0",
@@ -63,13 +77,7 @@ ENVIRONMENTS: dict[str, EnvSpec] = {
         q_high=(0.6, 0.07),
         q_bins=(20, 20),
         reward_threshold=-110.0,
-        # Temporally-correlated exploration builds the momentum needed to reach
-        # the goal under this sparse reward; uniform random never solves it.
-        nwm_overrides={
-            "warmup_episodes": 20,
-            "distance_cutoff": 3.0,
-            "exploration_repeat": 0.9,
-        },
+        nwm_overrides=NWM_SHARED_CONFIG,
     ),
 }
 

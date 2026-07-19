@@ -5,6 +5,42 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-07-19
+
+A fairness-and-credit release: two new opt-in credit-assignment fixes, and a
+benchmark protocol with **zero per-environment tuning** -- NWM now uses one
+shared config on every task, exactly like the DQN baseline, and beats or
+matches it everywhere on held-out seeds.
+
+### Added
+- **`NWMConfig.credit_blend`** (default `False`): the temporal weight now
+  blends the episode score toward the neutral value 0.5
+  (`0.5 + (score - 0.5) * t_weight`) instead of scaling it toward 0. Early
+  steps of good episodes stay mildly attractive instead of turning repulsive.
+- **`NWMConfig.relative_gate`** (default `False`): sign-aware dynamic quality
+  gate. The legacy gate `max(40, avg*1.25)` is constant at 40 whenever recent
+  returns are negative, silently capping every episode at score 0.6 -- which
+  disabled attraction (needs > 0.6) and the Dynamic Smart Lock (needs > 0.8)
+  on Acrobot and MountainCar. With the flag on and negative averages, the
+  threshold becomes `avg + 0.25*|avg|` ("25% better than the recent average").
+
+### Changed
+- **Benchmark: single shared NWM config** (`NWM_SHARED_CONFIG`: credit_blend,
+  relative_gate, adaptive_repeat, warmup 20, merge_threshold 0.5) replaces all
+  per-environment overrides, removing NWM's tuning advantage over DQN. The
+  config was selected on seeds 10-19 and validated once on held-out seeds 5-9.
+- README results table re-measured with every agent run in the same
+  environment on the held-out seeds: NWM 278.6 +- 159.5 vs DQN 279.4 +- 172.4
+  on CartPole (tie), **-271.2 +- 77.3 vs -335.6 +- 201.4 on Acrobot** and
+  **-141.5 +- 15.2 vs -194.0 +- 11.9 on MountainCar** (NWM wins both).
+
+### Fixed / honesty notes
+- The previously published Acrobot numbers were not reproducible from the
+  released code in a fresh environment (measured NWM baseline: -453.5 +- 92.9
+  vs the reported -265.7 +- 161.0; CartPole and MountainCar reproduced to the
+  decimal). Reported DQN numbers also shift across library versions; the new
+  table measures all agents under identical conditions.
+
 ## [2.2.0] - 2026-07-14
 
 A small, honest release: one new self-tuning exploration feature, plus documented
@@ -107,6 +143,7 @@ Python API (`NWM`, `NWMAgent`, `NWMConfig`, `PersistentCentroid`,
   memory, Dynamic Smart Lock, adaptive exploration, examples, and a basic test
   suite.
 
+[2.3.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.3.0
 [2.2.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.2.0
 [2.1.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.1.0
 [2.0.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.0.0

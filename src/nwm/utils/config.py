@@ -118,6 +118,22 @@ class NWMConfig:
     # has never been reached. It stops ramping as soon as returns vary.
     adaptive_repeat: bool = False
 
+    # --- Credit assignment ---
+    # When True, the temporal weight blends the episode score toward the
+    # neutral value 0.5 (final = 0.5 + (score - 0.5) * t_weight) instead of
+    # scaling it toward 0 (final = score * t_weight). With blending, early
+    # steps of a good episode stay mildly attractive rather than becoming
+    # repulsive. Helps dense-reward tasks (CartPole, Acrobot); keep it off
+    # for MountainCar, where the repulsion-dominant legacy scheme is stronger.
+    credit_blend: bool = False
+
+    # When True, the dynamic quality gate is sign-aware: with negative average
+    # returns the threshold becomes avg + 0.25*|avg| ("25% better than the
+    # recent average"), so above-average episodes can earn attraction scores.
+    # The legacy gate max(40, avg*1.25) always caps scores at 0.6 when returns
+    # are negative, silently disabling attraction and the Smart Lock there.
+    relative_gate: bool = False
+
     # Reproducibility
     seed: int | None = None
 
