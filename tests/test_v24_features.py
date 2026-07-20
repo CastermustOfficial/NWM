@@ -118,3 +118,62 @@ class TestBaselineBootstrap:
         cell = terminal._discretize(s)
         # Truncation must keep the bootstrap term; termination must zero it.
         assert truncated.q_table[cell][0] > terminal.q_table[cell][0]
+
+
+class TestCreditPropagation:
+    def test_value_flows_backwards_through_graph(self) -> None:
+        from nwm.core.potential_field import PersistentPotentialField
+
+        field = PersistentPotentialField(state_dim=2, credit_propagation=0.5)
+        # Centroid A: own episodes failed (low score). Centroid B: high score.
+        a_uid = field.add(np.array([0.0, 0.0], dtype=np.float32), 0, 0.2)
+        b_uid = field.add(np.array([5.0, 5.0], dtype=np.float32), 0, 0.9)
+        field.record_transition(a_uid, 0, b_uid)
+        field.propagate()
+        succ = field._successor_value(a_uid, 0)
+        assert succ is not None and succ > 0.6  # B's value visible from A
+        # The blended force at A turns less repulsive than A's own score says.
+        force_prop = field.centroids[0].get_force(0, succ, 0.5)
+        force_raw = field.centroids[0].get_force(0)
+        assert force_prop > force_raw
+
+    def test_self_loops_are_ignored(self) -> None:
+        from nwm.core.potential_field import PersistentPotentialField
+
+        field = PersistentPotentialField(state_dim=2, credit_propagation=0.5)
+        uid = field.add(np.array([0.0, 0.0], dtype=np.float32), 0, 0.2)
+        field.record_transition(uid, 0, uid)
+        assert field.succ == {}
+
+    def test_disabled_by_default(self) -> None:
+        from nwm.core.potential_field import PersistentPotentialField
+
+        field = PersistentPotentialField(state_dim=2)
+        field.add(np.array([0.0, 0.0], dtype=np.float32), 0, 0.2)
+        field.propagate()
+        assert field._prop_values == {}
+
+
+class TestStagnationRevival:
+    def test_checkpoint_and_restore_roundtrip(self) -> None:
+        agent = NWMAgent(state_dim=2, num_actions=2, config=NWMConfig(warmup_episodes=0), seed=0)
+        agent.field.add(_state(0.0), 0, 0.9)
+        agent.best_reward = 10.0
+        agent.checkpoint_if_best(10.0)
+        agent.field.add(_state(3.0), 1, 0.1)
+        assert len(agent.field) == 2
+        agent.restore_best_model()
+        assert len(agent.field) == 1
+
+    def test_collapse_triggers_restore_and_exploration(self) -> None:
+        config = NWMConfig(stagnation_revival=True, warmup_episodes=0)
+        agent = NWMAgent(state_dim=2, num_actions=2, config=config, seed=0)
+        agent._recent_rewards.extend([100.0] * 20)
+        agent._maybe_revive(100.0)  # new best -> snapshot
+        assert agent._field_snapshot is not None
+        agent.field.add(_state(0.0), 0, 0.1)  # divergence after snapshot
+        agent.exploration_rate = 0.01
+        for _ in range(30):
+            agent._maybe_revive(10.0)  # sustained collapse far below best
+        assert agent.exploration_rate >= 0.3
+        assert len(agent.field) == 0  # restored to the (empty) best snapshot

@@ -52,6 +52,7 @@ class PersistentCentroid:
         "score_sum",
         "state",
         "state_sq_sum",
+        "uid",
     ]
 
     def __init__(self, state: np.ndarray, score: float, action: int, ema_alpha: float = 0.0):
@@ -83,6 +84,9 @@ class PersistentCentroid:
         # for the dynamic unlock mechanism, independent of ema_alpha).
         self.score_ema_val = score
         self.locked = False
+        # Stable identifier assigned by the owning field (used by the
+        # credit-propagation successor graph; survives pruning reorders).
+        self.uid = -1
 
     @property
     def avg_score(self) -> float:
@@ -159,7 +163,9 @@ class PersistentCentroid:
             votes[1] += 1
             votes[2] += score * score
 
-    def get_force(self, action: int) -> float:
+    def get_force(
+        self, action: int, succ_value: float | None = None, prop_beta: float = 0.0
+    ) -> float:
         """
         Calculate the force (attraction/repulsion) for a specific action.
 
@@ -172,6 +178,12 @@ class PersistentCentroid:
         ----------
         action : int
             Action to query.
+        succ_value : Optional[float]
+            Propagated value of this action's successor centroids (0-1 score
+            scale). When provided with ``prop_beta > 0``, it is blended into
+            the action's own score before the force mapping.
+        prop_beta : float
+            Weight of ``succ_value`` in the blend.
 
         Returns
         -------
@@ -183,6 +195,8 @@ class PersistentCentroid:
 
         s, n, _ = self.action_votes[action]
         avg_score = s if self.ema_alpha > 0.0 else s / n
+        if succ_value is not None and prop_beta > 0.0:
+            avg_score = (1.0 - prop_beta) * avg_score + prop_beta * succ_value
 
         if avg_score > 0.6:
             return (avg_score - 0.5) * 1.5  # Attraction

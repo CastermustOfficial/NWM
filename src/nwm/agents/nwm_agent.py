@@ -8,6 +8,7 @@ agent that uses persistent potential fields for action selection.
 from __future__ import annotations
 
 import bisect
+import copy
 import pickle
 from collections import deque
 from typing import Any
@@ -119,6 +120,7 @@ class NWMAgent:
             lock_boost=self.config.lock_boost,
             score_ema=self.config.score_ema,
             dynamic_unlock=self.config.dynamic_unlock,
+            credit_propagation=self.config.credit_propagation,
         )
 
         # Episode buffers
@@ -134,6 +136,11 @@ class NWMAgent:
         # Whether the current episode ended with a true terminal event
         # (as opposed to a time-limit truncation). None = unknown/legacy.
         self._episode_terminated: bool | None = None
+
+        # Stagnation-revival state (config.stagnation_revival).
+        self._best_recent_avg = float("-inf")
+        self._since_best = 0
+        self._field_snapshot: Any = None
 
         # History and statistics
         self._reward_history: list[float] = []
@@ -354,6 +361,7 @@ class NWMAgent:
 
         # Add experiences to field with temporal weighting
         n = len(self._current_states)
+        uids: list[int] = []
         episode_good = total_reward >= dynamic_threshold
         terminated = True if self._episode_terminated is None else self._episode_terminated
         for i in range(n):
@@ -373,10 +381,45 @@ class NWMAgent:
                 weighted_score = score * t_weight
             final_score = max(0.0, min(1.0, weighted_score))
 
-            self.field.add(self._current_states[i], self._current_actions[i], final_score)
+            uid = self.field.add(self._current_states[i], self._current_actions[i], final_score)
+            uids.append(uid)
 
+        if self.config.credit_propagation > 0.0:
+            for i in range(n - 1):
+                self.field.record_transition(uids[i], self._current_actions[i], uids[i + 1])
+            self.field.propagate()
+
+        self._maybe_revive(avg_recent)
         self._update_adaptive_exploration()
         self._clear_buffers()
+
+    def _maybe_revive(self, avg_recent: float) -> None:
+        """Stagnation revival: snapshot on new bests, restore on collapse,
+        re-inflate exploration when progress stalls (config.stagnation_revival).
+        """
+        if not self.config.stagnation_revival or len(self._recent_rewards) < 10:
+            return
+        if avg_recent > self._best_recent_avg:
+            self._best_recent_avg = avg_recent
+            self._since_best = 0
+            self._field_snapshot = copy.deepcopy(self.field)
+            return
+        self._since_best += 1
+        collapse_floor = self._best_recent_avg - 0.25 * abs(self._best_recent_avg)
+        if (
+            self._field_snapshot is not None
+            and self._since_best >= 30
+            and avg_recent < collapse_floor
+        ):
+            # Sustained collapse well below the best: restore the best memory
+            # and re-open exploration to escape whatever trapped the field.
+            self.field = copy.deepcopy(self._field_snapshot)
+            self.exploration_rate = max(self.exploration_rate, 0.3)
+            self._since_best = 0
+        elif self._since_best >= 40:
+            # No collapse but no progress either: re-inflate exploration.
+            self.exploration_rate = max(self.exploration_rate, 0.5)
+            self._since_best = 0
 
     def _clear_buffers(self) -> None:
         """Clear episode buffers."""
@@ -422,6 +465,9 @@ class NWMAgent:
         self._last_action = None
         self._eval_last_action = None
         self._episode_terminated = None
+        self._best_recent_avg = float("-inf")
+        self._since_best = 0
+        self._field_snapshot = None
         self.best_reward = float("-inf")
         self.total_episodes = 0
         self.exploration_rate = self.base_exploration
@@ -493,12 +539,14 @@ class NWMAgent:
         return agent
 
     def checkpoint_if_best(self, reward: float) -> None:
-        """Placeholder for checkpoint logic (no-op by default)."""
-        pass
+        """Snapshot the field if ``reward`` matches or beats the best seen."""
+        if reward >= self.best_reward:
+            self._field_snapshot = copy.deepcopy(self.field)
 
     def restore_best_model(self) -> None:
-        """Placeholder for restore logic (no-op by default)."""
-        pass
+        """Restore the field from the best snapshot, if one exists."""
+        if self._field_snapshot is not None:
+            self.field = copy.deepcopy(self._field_snapshot)
 
     def __repr__(self) -> str:
         """String representation."""

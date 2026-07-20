@@ -5,6 +5,46 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-07-19
+
+The research release: NWM's field gets a long-horizon mechanism. Plus real
+checkpoint/restore, honestly measured.
+
+### Added
+- **Credit propagation on the centroid graph**
+  (`NWMConfig.credit_propagation`, default `0.0`; `0.3` in the benchmark):
+  the field records successor links (centroid, action) -> centroid along
+  observed trajectories and, at each episode end, runs 3 sweeps of value
+  propagation in score space: `V(c) = (1-beta)*recent_score(c) +
+  beta*E[V(successors)]`. Forces blend each action's own score with the
+  propagated value of that action's successors, so good outcomes flow
+  backwards across episodes (trajectory stitching) while scores stay on the
+  absolute 0-1 scale with 0.5 neutral -- the decision rule is untouched,
+  which is what the 2.2.0 negative results demanded. Selection seeds 10-19:
+  Acrobot -233.1 -> **-183.8**; held-out seeds 5-9: -250.4 -> **-211.9**
+  (median seed -167), with a CartPole cost (270.7 -> 211.2, still above the
+  corrected DQN's 205.7). beta swept: 0.2 too weak, 0.5 too strong.
+- **Stagnation revival** (`NWMConfig.stagnation_revival`, default `False`):
+  snapshots the field on new recent-average bests, restores it after a
+  sustained collapse well below the best, and re-inflates exploration when
+  progress stalls. `checkpoint_if_best` / `restore_best_model` are now real
+  implementations instead of no-op stubs. Measured honestly: on selection
+  seeds it did not improve benchmark means (CartPole 298.2 -> 273.1, Acrobot
+  -233.1 -> -265.4), so it ships **off** in the shared config -- kept as an
+  opt-in for long-running custom setups.
+- Unit tests for both mechanisms.
+
+### Changed
+- `NWM_SHARED_CONFIG` adds `credit_propagation: 0.3` (winner on 2 of 3
+  environments on selection seeds vs the 2.4.0 config as control; validated
+  once on held-out seeds 5-9). Held-out results vs corrected baselines:
+  CartPole **211.2 +- 131.3** (DQN 205.7 +- 137.6), Acrobot -211.9 +- 113.8
+  (DQN **-123.9 +- 46.1**), MountainCar **-142.3 +- 17.0** (DQN -200.0).
+- `PersistentPotentialField.add` now returns the uid of the absorbing
+  centroid (previously returned None).
+- With `credit_propagation=0` and `stagnation_revival=False`, behavior is
+  bit-identical to 2.4.0 (verified seed-for-seed).
+
 ## [2.4.0] - 2026-07-19
 
 Memory, credit, and baseline-correctness release. NWM gains recency-aware
@@ -194,6 +234,7 @@ Python API (`NWM`, `NWMAgent`, `NWMConfig`, `PersistentCentroid`,
   memory, Dynamic Smart Lock, adaptive exploration, examples, and a basic test
   suite.
 
+[2.5.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.5.0
 [2.4.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.4.0
 [2.3.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.3.0
 [2.2.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.2.0

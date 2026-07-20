@@ -61,6 +61,7 @@ class PersistentPotentialField:
         lock_boost: float = 2.5,
         score_ema: float = 0.0,
         dynamic_unlock: bool = False,
+        credit_propagation: float = 0.0,
     ) -> None:
         """
         Initialize a new potential field.
@@ -97,8 +98,15 @@ class PersistentPotentialField:
         self.lock_boost = lock_boost
         self.score_ema = score_ema
         self.dynamic_unlock = dynamic_unlock
+        self.credit_propagation = credit_propagation
 
         self.centroids: list[PersistentCentroid] = []
+
+        # Successor graph for credit propagation: uid -> action -> {succ_uid:
+        # transition count}, plus the propagated per-centroid values.
+        self._next_uid = 0
+        self.succ: dict[int, dict[int, dict[int, int]]] = {}
+        self._prop_values: dict[int, float] = {}
 
         # Cached (N, state_dim) matrix of centroid states, maintained
         # incrementally. ``None`` marks the cache as invalid (rebuilt lazily).
@@ -147,7 +155,13 @@ class PersistentPotentialField:
         std = np.sqrt(self.state_var + 1e-8)
         return np.asarray((state - self.state_mean) / std, dtype=np.float32)
 
-    def add(self, state: np.ndarray, action: int, score: float) -> None:
+    def _new_centroid(self, state: np.ndarray, score: float, action: int) -> PersistentCentroid:
+        centroid = PersistentCentroid(state, score, action, self.score_ema)
+        centroid.uid = self._next_uid
+        self._next_uid += 1
+        return centroid
+
+    def add(self, state: np.ndarray, action: int, score: float) -> int:
         """
         Add a new experience to the potential field.
 
@@ -162,6 +176,11 @@ class PersistentPotentialField:
             Action taken.
         score : float
             Resulting score (0-1 scale, higher is better).
+
+        Returns
+        -------
+        int
+            The uid of the centroid that absorbed this experience.
         """
         norm_state = self._normalize_state(state)
 
@@ -169,9 +188,10 @@ class PersistentPotentialField:
         self.score_sum += score
 
         if not self.centroids:
-            self.centroids.append(PersistentCentroid(norm_state, score, action, self.score_ema))
+            centroid = self._new_centroid(norm_state, score, action)
+            self.centroids.append(centroid)
             self._invalidate_matrix()
-            return
+            return centroid.uid
 
         # Find nearest centroid using the cached state matrix.
         matrix = self._stack_states()
@@ -192,13 +212,74 @@ class PersistentPotentialField:
             # Only one centroid's state changed: patch that row in place.
             if self._state_matrix is not None:
                 self._state_matrix[nearest_idx] = centroid.state
-        else:
-            new_centroid = PersistentCentroid(norm_state, score, action, self.score_ema)
-            self.centroids.append(new_centroid)
-            if self._state_matrix is not None:
-                self._state_matrix = np.vstack([self._state_matrix, new_centroid.state[None, :]])
-            if len(self.centroids) > self.max_centroids + 50:
-                self._prune()
+            return centroid.uid
+        new_centroid = self._new_centroid(norm_state, score, action)
+        self.centroids.append(new_centroid)
+        if self._state_matrix is not None:
+            self._state_matrix = np.vstack([self._state_matrix, new_centroid.state[None, :]])
+        if len(self.centroids) > self.max_centroids + 50:
+            self._prune()
+        return new_centroid.uid
+
+    # ------------------------------------------------------------------
+    # Credit propagation (successor graph)
+    # ------------------------------------------------------------------
+    def record_transition(self, prev_uid: int, action: int, next_uid: int) -> None:
+        """Record that taking ``action`` at centroid ``prev_uid`` led to
+        ``next_uid`` (consecutive steps of one trajectory). Self-loops are
+        skipped: they carry no propagation information."""
+        if prev_uid == next_uid:
+            return
+        actions = self.succ.setdefault(prev_uid, {})
+        counts = actions.setdefault(action, {})
+        counts[next_uid] = counts.get(next_uid, 0) + 1
+
+    def propagate(self, sweeps: int = 3) -> None:
+        """Run ``sweeps`` rounds of value propagation over the successor graph.
+
+        Values live in score space (0-1, 0.5 neutral): each centroid's value is
+        a blend of its own recent score and the count-weighted mean value of
+        its successors. Good outcomes flow backwards along trajectories, so a
+        centroid whose own episodes failed can still learn that it leads to a
+        good region (trajectory stitching across episodes).
+        """
+        beta = self.credit_propagation
+        if beta <= 0.0 or not self.centroids:
+            return
+        base = {c.uid: c.score_ema_val for c in self.centroids}
+        values = dict(base)
+        for _ in range(sweeps):
+            nxt: dict[int, float] = {}
+            for uid, own in base.items():
+                actions = self.succ.get(uid)
+                if not actions:
+                    nxt[uid] = own
+                    continue
+                acc = 0.0
+                weight = 0
+                for counts in actions.values():
+                    for succ_uid, cnt in counts.items():
+                        val = values.get(succ_uid)
+                        if val is not None:
+                            acc += cnt * val
+                            weight += cnt
+                nxt[uid] = (1.0 - beta) * own + beta * (acc / weight) if weight else own
+            values = nxt
+        self._prop_values = values
+
+    def _successor_value(self, uid: int, action: int) -> float | None:
+        """Count-weighted propagated value of the successors of (uid, action)."""
+        counts = self.succ.get(uid, {}).get(action)
+        if not counts:
+            return None
+        acc = 0.0
+        weight = 0
+        for succ_uid, cnt in counts.items():
+            val = self._prop_values.get(succ_uid)
+            if val is not None:
+                acc += cnt * val
+                weight += cnt
+        return acc / weight if weight else None
 
     def _prune(self) -> None:
         """Remove low-value centroids when capacity is exceeded."""
@@ -218,6 +299,7 @@ class PersistentPotentialField:
             )
             self.centroids = self.centroids[: self.max_centroids]
             self._invalidate_matrix()
+            self._prune_graph()
             return
 
         # Keep most valuable unlocked centroids
@@ -228,6 +310,26 @@ class PersistentPotentialField:
         kept_unlocked = unlocked[:remaining_slots]
         self.centroids = locked + kept_unlocked
         self._invalidate_matrix()
+        self._prune_graph()
+
+    def _prune_graph(self) -> None:
+        """Drop successor-graph entries that reference pruned centroids."""
+        if not self.succ:
+            return
+        alive = {c.uid for c in self.centroids}
+        self.succ = {
+            uid: pruned
+            for uid, actions in self.succ.items()
+            if uid in alive
+            and (
+                pruned := {
+                    action: kept
+                    for action, counts in actions.items()
+                    if (kept := {u: n for u, n in counts.items() if u in alive})
+                }
+            )
+        }
+        self._prop_values = {u: v for u, v in self._prop_values.items() if u in alive}
 
     def query_forces(self, state: np.ndarray, k: int = 20) -> tuple[dict[int, float], float]:
         """
@@ -271,7 +373,11 @@ class PersistentPotentialField:
             centroid = self.centroids[idx]
 
             for action in centroid.action_votes:
-                force = centroid.get_force(action)
+                if self.credit_propagation > 0.0:
+                    succ_value = self._successor_value(centroid.uid, action)
+                    force = centroid.get_force(action, succ_value, self.credit_propagation)
+                else:
+                    force = centroid.get_force(action)
                 var = centroid.get_action_variance(action)
                 confidence = 1.0 / (1.0 + var * 2.0)
 
@@ -331,6 +437,9 @@ class PersistentPotentialField:
         """Clear all centroids and reset statistics."""
         self.centroids = []
         self._invalidate_matrix()
+        self._next_uid = 0
+        self.succ = {}
+        self._prop_values = {}
         self.state_mean = np.zeros(self.state_dim, dtype=np.float32)
         self.state_var = np.ones(self.state_dim, dtype=np.float32)
         self.state_count = 0

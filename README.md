@@ -136,35 +136,40 @@ environment in **bold**:
 
 | Environment    | Random        | TabularQ      | DQN               | NWM                |
 | -------------- | ------------- | ------------- | ----------------- | ------------------ |
-| CartPole-v1    | 22.0 ± 2.2    | 154.4 ± 19.7  | 205.7 ± 137.6     | **270.7 ± 148.9**  |
-| Acrobot-v1     | −498.9 ± 1.4  | −431.7 ± 32.5 | **−123.9 ± 46.1** | −250.4 ± 145.6     |
-| MountainCar-v0 | −200.0 ± 0.0  | −200.0 ± 0.0  | −200.0 ± 0.0      | **−143.5 ± 15.1**  |
+| CartPole-v1    | 22.0 ± 2.2    | 154.4 ± 19.7  | 205.7 ± 137.6     | **211.2 ± 131.3**  |
+| Acrobot-v1     | −498.9 ± 1.4  | −431.7 ± 32.5 | **−123.9 ± 46.1** | −211.9 ± 113.8     |
+| MountainCar-v0 | −200.0 ± 0.0  | −200.0 ± 0.0  | −200.0 ± 0.0      | **−142.3 ± 17.0**  |
 
-**Takeaways.** With a single untuned configuration, NWM **leads on dense
-CartPole** and **wins clearly on sparse-reward MountainCar**, where the
-(corrected) DQN never reaches the goal within the episode budget. On
-**Acrobot the corrected DQN is the strongest method**: earlier versions of
-this table showed NWM ahead there, but that advantage evaporated once we
-fixed a bug *in the baselines* — DQN and tabular Q-learning were zeroing the
-bootstrap target on time-limit truncation, which poisons value estimates
-precisely on long-horizon tasks (DQN on Acrobot: −335.6 → −123.9 after the
-fix). We report the corrected comparison because beating a handicapped
-baseline is not a result. NWM's remaining Acrobot gap is consistent with the
-paper's negative results on bootstrapped credit assignment: value propagation
-over long horizons is exactly what a memory-based method lacks.
+**Takeaways.** With a single untuned configuration, NWM **matches DQN on
+dense CartPole** (difference inside the noise) and **wins clearly on
+sparse-reward MountainCar**, where the (corrected) DQN never reaches the goal
+within the episode budget. On **Acrobot the corrected DQN remains the
+strongest method**: earlier versions of this table showed NWM ahead there,
+but that advantage evaporated once we fixed a bug *in the baselines* — DQN
+and tabular Q-learning were zeroing the bootstrap target on time-limit
+truncation, which poisons value estimates precisely on long-horizon tasks
+(DQN on Acrobot: −335.6 → −123.9 after the fix). We report the corrected
+comparison because beating a handicapped baseline is not a result.
 
-The NWM mechanisms behind the wins: `credit_blend` (temporal credit blends
-toward the neutral score, so early steps of good episodes stay attractive),
-`relative_gate` (sign-aware quality gate; the legacy gate silently disabled
-attraction and the Smart Lock under negative returns), `adaptive_repeat`
-(self-tuning sticky exploration for sparse rewards), `truncation_credit`
-(late-step blame only when a true terminal event exists), and `eval_sticky`
-(momentum-preserving fallback on unknown states during greedy evaluation).
-Opt-in extras for non-stationary or long-horizon settings: `score_ema`
-(recency-weighted memories) and `dynamic_unlock` (locks that release when
-their recent scores collapse) — they trade CartPole/MountainCar performance
-for Acrobot gains, so they stay off in the shared benchmark config. Absolute
-numbers shift with library versions; regenerate with
+**Credit propagation** (`credit_propagation=0.3`, new in 2.5) attacks that
+gap directly: the field records which centroid follows which along observed
+trajectories and runs a few sweeps of value propagation in score space, so
+good outcomes flow backwards across episodes (trajectory stitching). On
+Acrobot this moved NWM from −250.4 to −211.9 on the held-out seeds (median
+seed −167), at a CartPole cost (−270.7 → 211.2) — a real trade-off we ship
+because it wins 2 of 3 environments on the selection seeds. The remaining
+Acrobot gap is value propagation *depth*: DQN backs up over the whole state
+space, the centroid graph only along visited trajectories.
+
+The other NWM mechanisms: `credit_blend` (temporal credit blends toward the
+neutral score), `relative_gate` (sign-aware quality gate), `adaptive_repeat`
+(self-tuning sticky exploration), `truncation_credit` (late-step blame only
+when a true terminal event exists), and `eval_sticky` (momentum-preserving
+eval fallback). Opt-in extras: `score_ema` (recency-weighted memories),
+`dynamic_unlock` (locks that release when recent scores collapse), and
+`stagnation_revival` (best-field snapshot/restore on collapse — measured
+neutral-to-slightly-negative on the benchmark means, kept for long-running
+custom setups). Absolute numbers shift with library versions; regenerate with
 `python -m benchmarks.run_benchmark --seeds 5 6 7 8 9`.
 
 ## Paper

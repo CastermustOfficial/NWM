@@ -31,6 +31,7 @@ NWM_SHARED_CONFIG: dict = {
     "adaptive_repeat": True,
     "truncation_credit": True,
     "eval_sticky": True,
+    "credit_propagation": 0.3,
     "warmup_episodes": 20,
     "merge_threshold": 0.5,
 }

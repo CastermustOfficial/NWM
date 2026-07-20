@@ -166,6 +166,25 @@ class NWMConfig:
     # during greedy evaluation on unknown states, preserving momentum there.
     eval_sticky: bool = False
 
+    # --- Stagnation revival ---
+    # If True, the agent snapshots its field whenever recent performance sets
+    # a new best, restores that snapshot when performance collapses well below
+    # the best for a sustained stretch, and re-inflates exploration when
+    # progress stalls. Targets the failure mode where individual seeds get
+    # trapped and never recover (bimodal across-seed distributions).
+    stagnation_revival: bool = False
+
+    # --- Credit propagation (centroid graph) ---
+    # If > 0, the field records which centroid follows which along observed
+    # trajectories and runs a few sweeps of value propagation in score space:
+    # V(c) = (1-beta)*recent_score(c) + beta*E[V(successor)]. Forces then use
+    # (1-beta)*own_action_score + beta*V(successors of that action), letting
+    # good outcomes flow backwards across episodes (trajectory stitching) --
+    # the long-horizon mechanism a pure episode-credit method lacks. Scores
+    # stay on the absolute 0-1 scale with 0.5 neutral, so the decision rule
+    # (Fear & Greed, locks, confidence) is untouched. 0.0 disables.
+    credit_propagation: float = 0.0
+
     # Reproducibility
     seed: int | None = None
 
