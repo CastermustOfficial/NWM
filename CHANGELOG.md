@@ -5,6 +5,57 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-07-20
+
+The honesty release. No change to the library itself: the benchmark protocol
+moves from 5 seeds to 20, and several previously published claims -- including
+one shipped as a default -- do not survive that move and are retracted here.
+
+### Changed
+- **Benchmark protocol: 20 seeds, not 5** (`DEFAULT_SEEDS` is now `range(40,
+  60)`). With across-seed sigma ~130-140 return units on CartPole and Acrobot,
+  n=5 gives a standard error near 60, so differences below ~120 points are
+  indistinguishable from noise -- a band that covered essentially every
+  mechanism-level claim this project had made. Confirmed the hard way: the
+  `credit_propagation` ablation **reversed sign** between two different
+  five-seed samples (Acrobot -211.9 on one, -364.8 on another, same code, same
+  commit). Seeds are now separated by role: 10-19 select the config, 20-39 run
+  ablations, 40-59 produce reported numbers.
+- **All reported results re-measured at n=20 with paired per-seed tests**
+  (Wilcoxon signed-rank, same seeds for every agent). Headline table:
+  CartPole NWM **210.6 +- 105.9** vs DQN 162.1 +- 97.0; Acrobot NWM
+  -317.7 +- 145.8 vs DQN **-216.6 +- 178.9**; MountainCar NWM
+  **-135.3 +- 25.8** vs every baseline at exactly -200.0.
+
+### Retracted
+- **The `credit_propagation` trade-off.** 2.5.0 documented an Acrobot gain
+  (-250.4 -> -211.9) bought at a CartPole cost (270.7 -> 211.2), and shipped
+  `credit_propagation=0.3` on that basis. At n=20, paired: Acrobot +57.5
+  (p=0.37, **not significant**), CartPole +8.6 (p=0.93, **no effect** -- the
+  "cost" does not exist), MountainCar +13.1 (p=0.017, **significant**). Both
+  halves of the published trade-off were noise. The flag stays on by default,
+  since it is neutral-to-positive everywhere and significant on one task, but
+  the stated justification was wrong and pointed at the wrong environments.
+- **The CartPole win over DQN.** Previously reported as NWM ahead; at n=20 the
+  paired gap is +48.5 with a 95% CI of [-14.3, +111.3] (p=0.064). The
+  defensible claim is parity, not superiority.
+- **The precision of the 2.4.0 baseline numbers.** DQN on Acrobot was reported
+  as -123.9 +- 46.1 (and measured here at n=5 as -86.1 +- 10.2); at n=20 it is
+  -216.6 +- 178.9. The tight early figure was a lucky sample. The 2.4.0
+  *conclusion* -- that the corrected DQN leads NWM on Acrobot -- still holds
+  (NWM wins only 5 of 20 seeds), but the margin was overstated and the
+  variance badly understated.
+
+### Notes
+- `src/nwm/` is byte-for-byte unchanged; agent behavior is identical to 2.5.0.
+  Only `benchmarks/config.py`, the docs, and the paper changed.
+- Mechanisms evaluated under the old 5-seed protocol (`score_ema`,
+  `relative_explore`, `stagnation_revival`) keep their ship/no-ship decisions,
+  but their reported magnitudes should be read as indicative only. "Did not
+  help" at n=5 is a statement about the evidence, not the mechanism.
+- Paper rewritten accordingly: adds the propagation formalization, the paired
+  ablation, a statistical-power section, and the baseline-bug disclosure.
+
 ## [2.5.0] - 2026-07-19
 
 The research release: NWM's field gets a long-horizon mechanism. Plus real

@@ -86,7 +86,17 @@ ENVIRONMENTS: dict[str, EnvSpec] = {
 
 
 # Default seeds for the full protocol.
-DEFAULT_SEEDS: tuple[int, ...] = (0, 1, 2, 3, 4)
+#
+# Twenty, not five. With across-seed sigma ~130-140 return units on CartPole and
+# Acrobot, five seeds give a standard error near 60 -- wide enough to swallow
+# essentially every mechanism-level difference in this project, and we have
+# measured the same ablation reversing sign between two different five-seed
+# samples. Twenty brings the standard error to ~30. See the README section on
+# statistical power before lowering this.
+#
+# Seeds are separated by role: 10-19 selected the shared config, 20-39 are used
+# for mechanism ablations, and 40-59 produce the reported comparison.
+DEFAULT_SEEDS: tuple[int, ...] = tuple(range(40, 60))
 
 # Evaluation protocol: greedy rollouts every ``eval_interval`` training episodes.
 EVAL_INTERVAL = 10

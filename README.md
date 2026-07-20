@@ -18,12 +18,16 @@ remembers *where* things went well or badly and acts by following forces:
 The result is a transparent, reproducible, dependency-light agent (NumPy +
 Gymnasium) that starts behaving sensibly from very few episodes.
 
-> **What's new in 2.2** — **adaptive stickiness** (`adaptive_repeat`): exploration
-> auto-ramps when the task gives no learning signal, matching DQN on MountainCar
-> with *zero* hand-tuning; plus documented negative results on bootstrapped
-> credit assignment. (2.1 added sticky exploration itself — NWM solves
-> MountainCar and beats DQN there; 2.0 added the `src/` layout, seeding, the
-> benchmark suite, and the LaTeX paper.) See the [CHANGELOG](CHANGELOG.md).
+> **What's new in 2.6** — the **honesty release**. The library is unchanged; the
+> benchmark moves from 5 seeds to **20**, and claims that don't survive that
+> move are **retracted** — including the `credit_propagation` trade-off shipped
+> in 2.5 and the CartPole win over DQN. The same ablation reversed sign between
+> two different 5-seed samples, which is what prompted the audit. Results are
+> now reported with paired per-seed significance tests. (2.5 added credit
+> propagation on the centroid graph; 2.4 added recency-aware memory and fixed a
+> truncation-bootstrap bug *in the baselines*; 2.3 moved the benchmark to a
+> single untuned shared config; 2.2 added adaptive stickiness; 2.1 added sticky
+> exploration.) See the [CHANGELOG](CHANGELOG.md).
 
 ## Key ideas
 
@@ -34,6 +38,7 @@ Gymnasium) that starts behaving sensibly from very few episodes.
 | **Dynamic Smart Lock** | Protects high-confidence memories from being overwritten.   |
 | **Fear & Greed**     | Rejects dangerous actions *before* maximizing reward.         |
 | **Adaptive exploration** | Collapses exploration once performance is high.           |
+| **Credit propagation** | Propagates value backwards along the centroid graph, stitching outcomes across episodes. |
 
 ## Installation
 
@@ -112,54 +117,82 @@ agent = NWM.load("agent.pkl")   # restores the RNG stream too
 
 A reproducible harness compares NWM against **Random**, **tabular Q-learning**,
 and **DQN** across a difficulty gradient of Gymnasium tasks (CartPole, Acrobot,
-MountainCar), over 5 seeds with a fixed greedy-evaluation protocol.
+MountainCar), over **20 seeds** with a fixed greedy-evaluation protocol.
 
 **Fairness note.** NWM uses **one shared configuration for every environment**
 (`NWM_SHARED_CONFIG` in `benchmarks/config.py`) — no per-task tuning — exactly
-like the DQN baseline. The config was selected on seeds 10–19 and validated
-once on held-out seeds 5–9; the table below reports the held-out seeds.
+like the DQN baseline. Seeds are separated by role so nothing is reported on
+seeds that influenced a choice: config selected on **10–19**, mechanism
+ablations on **20–39**, and the table below on **40–59**, used once.
 
 ```bash
-python -m benchmarks.run_benchmark --quick            # fast smoke run
-python -m benchmarks.run_benchmark --seeds 0 1 2 3 4  # full protocol
+python -m benchmarks.run_benchmark --quick               # fast smoke run
+python -m benchmarks.run_benchmark --seeds $(seq 40 59)  # full protocol
 ```
 
 Outputs land in `results/`: per-run JSON, an aggregated `summary.csv`, a
 Markdown table, and learning-curve / comparison plots. The accompanying paper in
 [`paper/`](paper/) is built from exactly these numbers.
 
-**Final greedy evaluation** (mean ± std over held-out seeds 5–9; higher is
-better — Acrobot and MountainCar returns are negative). All agents measured in
-the same environment (CPU torch 2.13, gymnasium 1.3), **after fixing the
-truncation-bootstrap bug in the value-based baselines** (see below). Best per
-environment in **bold**:
+**Final greedy evaluation** (mean ± std over 20 seeds; higher is better —
+Acrobot and MountainCar returns are negative). All agents measured in the same
+environment (CPU torch 2.6, gymnasium 1.2), **after fixing the
+truncation-bootstrap bug in the value-based baselines** (see below). Bold marks
+the best *mean* — see the significance column, because two of these three gaps
+are not statistically supported:
 
-| Environment    | Random        | TabularQ      | DQN               | NWM                |
-| -------------- | ------------- | ------------- | ----------------- | ------------------ |
-| CartPole-v1    | 22.0 ± 2.2    | 154.4 ± 19.7  | 205.7 ± 137.6     | **211.2 ± 131.3**  |
-| Acrobot-v1     | −498.9 ± 1.4  | −431.7 ± 32.5 | **−123.9 ± 46.1** | −211.9 ± 113.8     |
-| MountainCar-v0 | −200.0 ± 0.0  | −200.0 ± 0.0  | −200.0 ± 0.0      | **−142.3 ± 17.0**  |
+| Environment    | Random       | TabularQ      | DQN                | NWM                 | NWM vs. best baseline |
+| -------------- | ------------ | ------------- | ------------------ | ------------------- | --------------------- |
+| CartPole-v1    | 22.9 ± 2.2   | 139.9 ± 30.5  | 162.1 ± 97.0       | **210.6 ± 105.9**   | +48.5, *p*=0.064 — n.s. |
+| Acrobot-v1     | −499.0 ± 2.6 | −420.6 ± 45.9 | **−216.6 ± 178.9** | −317.7 ± 145.8      | −101.1, *p*=0.071 — n.s. |
+| MountainCar-v0 | −200.0 ± 0.0 | −200.0 ± 0.0  | −200.0 ± 0.0       | **−135.3 ± 25.8**   | **+64.7, *p*=0.0002** |
 
-**Takeaways.** With a single untuned configuration, NWM **matches DQN on
-dense CartPole** (difference inside the noise) and **wins clearly on
-sparse-reward MountainCar**, where the (corrected) DQN never reaches the goal
-within the episode budget. On **Acrobot the corrected DQN remains the
-strongest method**: earlier versions of this table showed NWM ahead there,
-but that advantage evaporated once we fixed a bug *in the baselines* — DQN
-and tabular Q-learning were zeroing the bootstrap target on time-limit
-truncation, which poisons value estimates precisely on long-horizon tasks
-(DQN on Acrobot: −335.6 → −123.9 after the fix). We report the corrected
-comparison because beating a handicapped baseline is not a result.
+Comparisons are paired per seed (same seeds for every agent), Wilcoxon
+signed-rank.
 
-**Credit propagation** (`credit_propagation=0.3`, new in 2.5) attacks that
-gap directly: the field records which centroid follows which along observed
-trajectories and runs a few sweeps of value propagation in score space, so
-good outcomes flow backwards across episodes (trajectory stitching). On
-Acrobot this moved NWM from −250.4 to −211.9 on the held-out seeds (median
-seed −167), at a CartPole cost (−270.7 → 211.2) — a real trade-off we ship
-because it wins 2 of 3 environments on the selection seeds. The remaining
-Acrobot gap is value propagation *depth*: DQN backs up over the whole state
-space, the centroid graph only along visited trajectories.
+**Takeaways.** One result is unambiguous: on **sparse-reward MountainCar NWM
+wins decisively** (+64.7 on 18 of 20 seeds, *p*=0.0002) — every baseline,
+DQN included, finishes at exactly −200.0, never reaching the goal once. On
+**CartPole NWM has the best mean and the best sample efficiency** (AUC 135.1
+vs. DQN's 109.3), but the +48.5 gap over DQN spans zero (*p*=0.064): the
+defensible claim is *parity*, not superiority. On **Acrobot DQN is better** —
+NWM wins only 5 of 20 seeds, and the medians separate much further than the
+means (−87.5 vs. −272.3).
+
+**On statistical power (why the numbers moved).** Earlier versions of this
+table used 5 seeds. With across-seed σ ≈ 130–140 on CartPole and Acrobot, that
+gives a standard error near 60 — differences below ~120 points are
+indistinguishable from noise, which covered essentially every mechanism claim
+we made. We verified this the hard way: an ablation measured on one set of 5
+seeds **reversed sign** on another. Two prior claims did not survive the move
+to 20 seeds, and both are retracted below. Baselines were also affected: DQN on
+Acrobot read −86.1 ± 10.2 at n=5 and −216.6 ± 178.9 at n=20 — the tight early
+figure was a lucky sample.
+
+**On the baseline bug.** DQN and tabular Q-learning were zeroing the bootstrap
+target on time-limit truncation, poisoning value estimates precisely on
+long-horizon tasks. Both now bootstrap through truncations. This **reversed a
+result in DQN's favour** on Acrobot, where we had previously claimed a lead for
+NWM. We report the corrected comparison because beating a handicapped baseline
+is not a result.
+
+**Credit propagation** (`credit_propagation=0.3`, new in 2.5): the field records
+which centroid follows which along observed trajectories and runs a few sweeps
+of value propagation in score space, so good outcomes flow backwards across
+episodes (trajectory stitching). Ablated paired over 20 seeds:
+
+| Environment    | β=0    | β=0.3  | Paired Δ | Wins  | *p*   |
+| -------------- | ------ | ------ | -------- | ----- | ----- |
+| CartPole-v1    | 260.8  | 269.4  | +8.6     | 10/20 | 0.93  |
+| Acrobot-v1     | −276.6 | −219.2 | +57.5    | 12/20 | 0.37  |
+| MountainCar-v0 | −159.7 | −146.6 | +13.1    | 13/20 | **0.017** |
+
+*Retraction:* we previously described this as an Acrobot gain bought at a
+CartPole cost. **Neither half survives at 20 seeds** — the Acrobot gain is not
+significant and the CartPole cost does not exist; both were artifacts of a ±60
+standard error. The only effect that holds up is on MountainCar, which we had
+not claimed. It stays on by default (neutral-to-positive everywhere,
+significant on one task), but not for the reason originally given.
 
 The other NWM mechanisms: `credit_blend` (temporal credit blends toward the
 neutral score), `relative_gate` (sign-aware quality gate), `adaptive_repeat`
@@ -167,10 +200,11 @@ neutral score), `relative_gate` (sign-aware quality gate), `adaptive_repeat`
 when a true terminal event exists), and `eval_sticky` (momentum-preserving
 eval fallback). Opt-in extras: `score_ema` (recency-weighted memories),
 `dynamic_unlock` (locks that release when recent scores collapse), and
-`stagnation_revival` (best-field snapshot/restore on collapse — measured
-neutral-to-slightly-negative on the benchmark means, kept for long-running
-custom setups). Absolute numbers shift with library versions; regenerate with
-`python -m benchmarks.run_benchmark --seeds 5 6 7 8 9`.
+`stagnation_revival` (best-field snapshot/restore on collapse). These were
+evaluated under the old 5-seed protocol, so treat their reported magnitudes as
+indicative only — "did not help" there is a statement about the evidence, not
+about the mechanism. Absolute numbers shift with library versions; regenerate
+with `python -m benchmarks.run_benchmark --seeds $(seq 40 59)`.
 
 ## Paper
 
@@ -216,7 +250,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
   author  = {CastermustOfficial},
   year    = {2026},
   url     = {https://github.com/CastermustOfficial/NWM},
-  version = {2.0.0}
+  version = {2.6.0}
 }
 ```
 

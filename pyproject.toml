@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nwm-rl"
-version = "2.5.0"
+version = "2.6.0"
 description = "Negative Weight Mapping - a non-parametric reinforcement learning framework using persistent potential fields"
 readme = "README.md"
 license = { text = "MIT" }

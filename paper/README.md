@@ -9,8 +9,9 @@ The tables and figures are generated from the benchmark outputs, so the paper
 always reflects the released numbers:
 
 ```bash
-# 1. Run the benchmark (writes results/summary.csv and results/plots/*.png)
-python -m benchmarks.run_benchmark --seeds 0 1 2 3 4
+# 1. Run the benchmark on the held-out seeds the paper reports
+#    (writes results/summary.csv and results/plots/*.png)
+python -m benchmarks.run_benchmark --seeds 5 6 7 8 9
 
 # 2. Turn the results into paper assets (tables/results_table.tex, figures/*.png)
 python paper/make_paper_assets.py
