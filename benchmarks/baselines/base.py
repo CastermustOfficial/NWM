@@ -29,8 +29,14 @@ class BenchmarkAgent(Protocol):
         reward: float,
         next_state: np.ndarray,
         done: bool,
+        terminated: bool | None = None,
     ) -> None:
-        """Consume one environment transition (learning happens here)."""
+        """Consume one environment transition (learning happens here).
+
+        ``terminated`` distinguishes a true terminal event from a time-limit
+        truncation; value-based agents must only zero the bootstrap target on
+        true termination. ``None`` preserves the legacy behavior (``done``).
+        """
         ...
 
     def end_episode(self) -> None:

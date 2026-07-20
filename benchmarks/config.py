@@ -19,9 +19,9 @@ from nwm import NWMConfig
 
 # One shared NWM configuration for EVERY environment -- no per-task tuning,
 # so the comparison with DQN (which also uses a single fixed config) is fair.
-# Selected on seeds 10-19, validated on held-out seeds 5-9:
-# beats in-environment DQN on Acrobot and MountainCar and matches it on
-# CartPole. credit_blend keeps early steps of good episodes attractive;
+# Selected on seeds 10-19, validated on held-out seeds 5-9 against
+# truncation-corrected baselines: NWM leads on CartPole and MountainCar;
+# the corrected DQN leads on Acrobot (see README). credit_blend keeps early steps of good episodes attractive;
 # relative_gate makes the quality gate sign-aware (without it, attraction and
 # the Smart Lock never activate under negative returns); adaptive_repeat
 # self-tunes sticky exploration only when returns are flat (sparse reward).
@@ -29,6 +29,8 @@ NWM_SHARED_CONFIG: dict = {
     "credit_blend": True,
     "relative_gate": True,
     "adaptive_repeat": True,
+    "truncation_credit": True,
+    "eval_sticky": True,
     "warmup_episodes": 20,
     "merge_threshold": 0.5,
 }

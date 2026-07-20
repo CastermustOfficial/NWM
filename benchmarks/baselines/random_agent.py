@@ -24,6 +24,7 @@ class RandomAgent:
         reward: float,
         next_state: np.ndarray,
         done: bool,
+        terminated: bool | None = None,
     ) -> None:
         return None
 

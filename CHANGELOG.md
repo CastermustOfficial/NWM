@@ -5,6 +5,57 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-07-19
+
+Memory, credit, and baseline-correctness release. NWM gains recency-aware
+memory and truncation-aware credit; the value-based baselines get a
+significant bug fix that -- honestly -- reverses one headline result.
+
+### Added
+- **`NWMConfig.truncation_credit`** (default `False`, on in the benchmark):
+  temporal credit now uses the terminated/truncated distinction. A bad episode
+  ending in a true terminal event keeps late-step blame; a bad truncated
+  episode (aimless until timeout) gets flat mild credit; a good truncated
+  episode (survived the full limit) gets full flat credit instead of
+  under-crediting its early steps. `NWMAgent.step`'s `terminated` parameter is
+  un-deprecated to carry this signal.
+- **`NWMConfig.eval_sticky`** (default `False`, on in the benchmark): the
+  random fallback used during greedy evaluation on unknown states now honors
+  sticky exploration, preserving momentum (Acrobot selection seeds:
+  -275.9 -> -233.1).
+- **`NWMConfig.score_ema`** (default `0.0`): per-action centroid scores become
+  exponential moving averages instead of all-time sums, so stale judgments
+  fade as the percentile scale shifts. Helps long-horizon Acrobot
+  (-277.6 -> -201.6 with alpha 0.3) but costs CartPole/MountainCar, so it is
+  off in the shared benchmark config.
+- **`NWMConfig.dynamic_unlock`** (default `False`): locked centroids whose
+  recent merged scores collapse (EMA < 0.45) lose their lock instead of
+  staying protected forever.
+- **`NWMConfig.relative_explore`** (default `False`): percentile-based
+  exploration collapse replacing the CartPole-specific 450/300 thresholds.
+  Measured and documented: it hurt Acrobot (-369.7) in the shared config, so
+  it ships off but replaces magic constants for custom setups.
+- Test suite for all new mechanisms (`tests/test_v24_features.py`).
+
+### Fixed
+- **Baselines: truncation-aware bootstrapping.** DQN and tabular Q-learning
+  treated time-limit truncation as a true terminal state, zeroing the
+  bootstrap target -- a classic bug that poisons value estimates on
+  long-horizon tasks. The runner now passes `terminated` separately and both
+  baselines bootstrap through truncations. Effect on held-out seeds: DQN
+  Acrobot -335.6 -> -123.9 (now the strongest method there, overtaking NWM;
+  the README reports this honestly), DQN MountainCar -194.0 -> -200.0,
+  CartPole within noise.
+
+### Changed
+- `NWM_SHARED_CONFIG` adds `truncation_credit` and `eval_sticky` (selected on
+  seeds 10-19 against the 2.3.0 config as control, validated once on held-out
+  seeds 5-9). Held-out results vs corrected baselines: CartPole
+  **270.7 +- 148.9** (DQN 205.7 +- 137.6), Acrobot -250.4 +- 145.6 (DQN
+  **-123.9 +- 46.1**), MountainCar **-143.5 +- 15.1** (DQN -200.0 +- 0.0).
+- With all new flags off and `terminated` not supplied, agent behavior is
+  bit-identical to 2.3.0 (verified seed-for-seed).
+
 ## [2.3.0] - 2026-07-19
 
 A fairness-and-credit release: two new opt-in credit-assignment fixes, and a
@@ -143,6 +194,7 @@ Python API (`NWM`, `NWMAgent`, `NWMConfig`, `PersistentCentroid`,
   memory, Dynamic Smart Lock, adaptive exploration, examples, and a basic test
   suite.
 
+[2.4.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.4.0
 [2.3.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.3.0
 [2.2.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.2.0
 [2.1.0]: https://github.com/CastermustOfficial/NWM/releases/tag/v2.1.0

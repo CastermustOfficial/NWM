@@ -9,7 +9,7 @@ type: software
 authors:
   - name: "CastermustOfficial"
     website: "https://github.com/CastermustOfficial"
-version: "2.3.0"
+version: "2.4.0"
 license: MIT
 repository-code: "https://github.com/CastermustOfficial/NWM"
 url: "https://github.com/CastermustOfficial/NWM"

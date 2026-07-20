@@ -117,6 +117,8 @@ class NWMAgent:
             lock_min_visits=self.config.lock_min_visits,
             lock_min_score=self.config.lock_min_score,
             lock_boost=self.config.lock_boost,
+            score_ema=self.config.score_ema,
+            dynamic_unlock=self.config.dynamic_unlock,
         )
 
         # Episode buffers
@@ -127,6 +129,11 @@ class NWMAgent:
         # Temporally-correlated ("sticky") exploration state.
         self._exploration_repeat = self.config.exploration_repeat
         self._last_action: int | None = None
+        self._eval_last_action: int | None = None
+
+        # Whether the current episode ended with a true terminal event
+        # (as opposed to a time-limit truncation). None = unknown/legacy.
+        self._episode_terminated: bool | None = None
 
         # History and statistics
         self._reward_history: list[float] = []
@@ -169,11 +176,11 @@ class NWMAgent:
         forces, min_dist = self.field.query_forces(state)
 
         # If too far from known regions, explore
-        if min_dist > self.field.distance_cutoff:
-            return self._random_action()
-
-        if not forces:
-            return self._random_action()
+        if min_dist > self.field.distance_cutoff or not forces:
+            action = self._random_action(training=training)
+            if not training:
+                self._eval_last_action = action
+            return action
 
         # Fear & Greed: Avoid dangerous actions first
         best_attraction = max(forces.values()) if forces else 0.0
@@ -184,24 +191,31 @@ class NWMAgent:
         safe_actions = [a for a in forces if forces[a] > risk_tolerance]
 
         if not safe_actions:
-            return max(forces, key=lambda a: forces[a])
+            chosen = max(forces, key=lambda a: forces[a])
+        else:
+            chosen = max(safe_actions, key=lambda a: forces[a])
+        if not training:
+            self._eval_last_action = chosen
+        return chosen
 
-        return max(safe_actions, key=lambda a: forces[a])
-
-    def _random_action(self) -> int:
+    def _random_action(self, training: bool = True) -> int:
         """Sample an exploratory action from the private RNG.
 
         With probability ``exploration_repeat`` the previous action is repeated
         (temporally-correlated "sticky" exploration) to build momentum in
         environments that need sustained torque; otherwise a uniform action is
-        drawn.
+        drawn. With ``config.eval_sticky``, the same stickiness applies to the
+        random fallback used during greedy evaluation on unknown states.
         """
+        last = self._last_action
+        if not training:
+            last = self._eval_last_action if self.config.eval_sticky else None
         if (
             self._exploration_repeat > 0.0
-            and self._last_action is not None
+            and last is not None
             and self._rng.random() < self._exploration_repeat
         ):
-            return self._last_action
+            return last
         return int(self._rng.integers(0, self.num_actions))
 
     def step(
@@ -229,9 +243,12 @@ class NWMAgent:
         next_state : np.ndarray
             State after action.
         done : bool
-            Whether episode ended.
+            Whether episode ended (terminated or truncated).
         terminated : Optional[bool]
-            Deprecated. Use `done` instead.
+            Whether the episode ended with a true terminal event (goal
+            reached, pole fallen) rather than a time-limit truncation.
+            Used by ``config.truncation_credit``; when None, ``done`` is
+            assumed to be a true termination (legacy behavior).
         """
         state = np.asarray(state, dtype=np.float32)
 
@@ -245,6 +262,7 @@ class NWMAgent:
         self._last_action = action
 
         if done:
+            self._episode_terminated = bool(done) if terminated is None else bool(terminated)
             self._end_episode()
 
     def _get_percentile_score(self, total_reward: float) -> float:
@@ -260,6 +278,24 @@ class NWMAgent:
             return
 
         avg_recent = sum(self._recent_rewards) / len(self._recent_rewards)
+
+        if self.config.relative_explore:
+            # Environment-agnostic schedule: collapse exploration when recent
+            # performance sits at the top of the agent's own return history,
+            # instead of using CartPole-scale absolute thresholds (450/300).
+            hist = self._sorted_rewards
+            p = bisect.bisect_left(hist, avg_recent) / len(hist) if hist else 0.0
+            if p > 0.97:
+                self.exploration_rate = 0.0
+                self._adaptive_mode = "Perfect (Exp=0)"
+            elif p > 0.85:
+                self.exploration_rate = 0.02
+                self._adaptive_mode = "Refining (Exp=0.02)"
+            else:
+                target = max(self.min_exploration, self.exploration_rate * self.exploration_decay)
+                self.exploration_rate = target
+                self._adaptive_mode = f"Decay (Exp={self.exploration_rate:.3f})"
+            return
 
         if avg_recent > 450:
             self.exploration_rate = 0.0
@@ -318,8 +354,17 @@ class NWMAgent:
 
         # Add experiences to field with temporal weighting
         n = len(self._current_states)
+        episode_good = total_reward >= dynamic_threshold
+        terminated = True if self._episode_terminated is None else self._episode_terminated
         for i in range(n):
-            t_weight = 0.4 + 0.6 * (i / n)  # Later steps weighted higher
+            if self.config.truncation_credit and not terminated:
+                # Time-limit ending: there is no terminal event to blame or
+                # credit, so the late-step ramp is unjustified. A good
+                # truncated episode (survived the full limit) earns full flat
+                # credit; a bad one (aimless until timeout) flat mild credit.
+                t_weight = 1.0 if episode_good else 0.55
+            else:
+                t_weight = 0.4 + 0.6 * (i / n)  # Later steps weighted higher
             if self.config.credit_blend:
                 # Blend toward neutral 0.5: early steps of good episodes stay
                 # mildly attractive instead of being pushed into repulsion.
@@ -375,6 +420,8 @@ class NWMAgent:
         self._recent_rewards = deque(maxlen=20)
         self._sorted_rewards = []
         self._last_action = None
+        self._eval_last_action = None
+        self._episode_terminated = None
         self.best_reward = float("-inf")
         self.total_episodes = 0
         self.exploration_rate = self.base_exploration

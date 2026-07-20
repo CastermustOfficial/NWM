@@ -59,6 +59,8 @@ class PersistentPotentialField:
         lock_min_visits: int = 8,
         lock_min_score: float = 0.80,
         lock_boost: float = 2.5,
+        score_ema: float = 0.0,
+        dynamic_unlock: bool = False,
     ) -> None:
         """
         Initialize a new potential field.
@@ -79,6 +81,12 @@ class PersistentPotentialField:
             Minimum average score to allow locking.
         lock_boost : float
             Multiplier for locked centroid influence.
+        score_ema : float
+            If > 0, per-action centroid scores are exponential moving averages
+            (recency-weighted) instead of all-time running sums.
+        dynamic_unlock : bool
+            If True, locked centroids whose recent scores collapse lose their
+            lock instead of staying protected forever.
         """
         self.state_dim = state_dim
         self.max_centroids = max_centroids
@@ -87,6 +95,8 @@ class PersistentPotentialField:
         self.lock_min_visits = lock_min_visits
         self.lock_min_score = lock_min_score
         self.lock_boost = lock_boost
+        self.score_ema = score_ema
+        self.dynamic_unlock = dynamic_unlock
 
         self.centroids: list[PersistentCentroid] = []
 
@@ -159,7 +169,7 @@ class PersistentPotentialField:
         self.score_sum += score
 
         if not self.centroids:
-            self.centroids.append(PersistentCentroid(norm_state, score, action))
+            self.centroids.append(PersistentCentroid(norm_state, score, action, self.score_ema))
             self._invalidate_matrix()
             return
 
@@ -171,12 +181,19 @@ class PersistentPotentialField:
 
         if min_dist < self.merge_threshold:
             centroid = self.centroids[nearest_idx]
-            centroid.merge(norm_state, score, action, self.lock_min_visits, self.lock_min_score)
+            centroid.merge(
+                norm_state,
+                score,
+                action,
+                self.lock_min_visits,
+                self.lock_min_score,
+                self.dynamic_unlock,
+            )
             # Only one centroid's state changed: patch that row in place.
             if self._state_matrix is not None:
                 self._state_matrix[nearest_idx] = centroid.state
         else:
-            new_centroid = PersistentCentroid(norm_state, score, action)
+            new_centroid = PersistentCentroid(norm_state, score, action, self.score_ema)
             self.centroids.append(new_centroid)
             if self._state_matrix is not None:
                 self._state_matrix = np.vstack([self._state_matrix, new_centroid.state[None, :]])

@@ -38,8 +38,9 @@ class NWMBenchmarkAgent:
         reward: float,
         next_state: np.ndarray,
         done: bool,
+        terminated: bool | None = None,
     ) -> None:
-        self.agent.step(state, action, reward, next_state, done)
+        self.agent.step(state, action, reward, next_state, done, terminated)
 
     def end_episode(self) -> None:
         return None

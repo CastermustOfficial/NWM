@@ -43,9 +43,18 @@ class PersistentCentroid:
     Avg score: 0.85
     """
 
-    __slots__ = ["action_votes", "count", "locked", "score_sum", "state", "state_sq_sum"]
+    __slots__ = [
+        "action_votes",
+        "count",
+        "ema_alpha",
+        "locked",
+        "score_ema_val",
+        "score_sum",
+        "state",
+        "state_sq_sum",
+    ]
 
-    def __init__(self, state: np.ndarray, score: float, action: int):
+    def __init__(self, state: np.ndarray, score: float, action: int, ema_alpha: float = 0.0):
         """
         Create a new centroid from an initial observation.
 
@@ -57,12 +66,22 @@ class PersistentCentroid:
             Score for this state-action pair (0-1 scale).
         action : int
             Action taken in this state.
+        ema_alpha : float
+            If > 0, per-action score statistics are exponential moving
+            averages with this smoothing factor instead of all-time running
+            sums, so stale memories fade as the score distribution shifts.
         """
         self.state = np.array(state, dtype=np.float32)
         self.state_sq_sum = self.state * self.state
         self.score_sum = score
         self.count = 1
+        self.ema_alpha = ema_alpha
+        # With ema_alpha > 0, votes hold [ema_mean, n, ema_sq_mean];
+        # with the legacy scheme they hold [score_sum, n, score_sq_sum].
         self.action_votes: dict[int, list[float]] = {action: [score, 1.0, score * score]}
+        # Centroid-level EMA of merged scores (fixed alpha: recency signal
+        # for the dynamic unlock mechanism, independent of ema_alpha).
+        self.score_ema_val = score
         self.locked = False
 
     @property
@@ -77,6 +96,7 @@ class PersistentCentroid:
         action: int,
         lock_min_visits: int = 8,
         lock_min_score: float = 0.80,
+        dynamic_unlock: bool = False,
     ) -> None:
         """
         Merge a new experience into this centroid.
@@ -113,18 +133,31 @@ class PersistentCentroid:
 
         self.score_sum += score
         self.count += 1
+        self.score_ema_val = 0.9 * self.score_ema_val + 0.1 * score
 
         # Dynamic Smart Lock: lock if statistically valid and high-performing
         if not self.locked and self.count > lock_min_visits and self.avg_score > lock_min_score:
             self.locked = True
+        elif dynamic_unlock and self.locked and self.score_ema_val < 0.45:
+            # The world (or the policy) changed: recent scores collapsed, so
+            # this memory is no longer trustworthy enough to stay protected.
+            self.locked = False
 
         # Update action-specific statistics
         if action not in self.action_votes:
-            self.action_votes[action] = [0.0, 0, 0.0]
+            init = score if self.ema_alpha > 0.0 else 0.0
+            self.action_votes[action] = [init, 0, init * init]
 
-        self.action_votes[action][0] += score
-        self.action_votes[action][1] += 1
-        self.action_votes[action][2] += score * score
+        votes = self.action_votes[action]
+        if self.ema_alpha > 0.0:
+            a = self.ema_alpha
+            votes[0] = (1 - a) * votes[0] + a * score
+            votes[1] += 1
+            votes[2] = (1 - a) * votes[2] + a * score * score
+        else:
+            votes[0] += score
+            votes[1] += 1
+            votes[2] += score * score
 
     def get_force(self, action: int) -> float:
         """
@@ -149,7 +182,7 @@ class PersistentCentroid:
             return 0.0
 
         s, n, _ = self.action_votes[action]
-        avg_score = s / n
+        avg_score = s if self.ema_alpha > 0.0 else s / n
 
         if avg_score > 0.6:
             return (avg_score - 0.5) * 1.5  # Attraction
@@ -180,6 +213,8 @@ class PersistentCentroid:
         if n < 2:
             return 0.0
 
+        if self.ema_alpha > 0.0:
+            return max(0.0, s_sq - s * s)
         mean = s / n
         return max(0.0, (s_sq / n) - (mean * mean))
 

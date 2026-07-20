@@ -65,10 +65,14 @@ class TabularQLearningAgent:
         reward: float,
         next_state: np.ndarray,
         done: bool,
+        terminated: bool | None = None,
     ) -> None:
         s = self._discretize(state)
         s_next = self._discretize(next_state)
-        best_next = 0.0 if done else float(np.max(self.q_table[s_next]))
+        # Only a true terminal event zeroes the bootstrap target; a time-limit
+        # truncation is not the end of the underlying process.
+        terminal = done if terminated is None else terminated
+        best_next = 0.0 if terminal else float(np.max(self.q_table[s_next]))
         td_target = reward + self.gamma * best_next
         td_error = td_target - self.q_table[s][action]
         self.q_table[s][action] += self.alpha * td_error

@@ -130,28 +130,42 @@ Markdown table, and learning-curve / comparison plots. The accompanying paper in
 
 **Final greedy evaluation** (mean ± std over held-out seeds 5–9; higher is
 better — Acrobot and MountainCar returns are negative). All agents measured in
-the same environment (CPU torch 2.13, gymnasium 1.3). Best per environment in
-**bold**:
+the same environment (CPU torch 2.13, gymnasium 1.3), **after fixing the
+truncation-bootstrap bug in the value-based baselines** (see below). Best per
+environment in **bold**:
 
 | Environment    | Random        | TabularQ      | DQN               | NWM                |
 | -------------- | ------------- | ------------- | ----------------- | ------------------ |
-| CartPole-v1    | 22.0 ± 2.2    | 154.4 ± 19.7  | **279.4 ± 172.4** | 278.6 ± 159.5      |
-| Acrobot-v1     | −498.9 ± 1.4  | −433.8 ± 32.0 | −335.6 ± 201.4    | **−271.2 ± 77.3**  |
-| MountainCar-v0 | −200.0 ± 0.0  | −200.0 ± 0.0  | −194.0 ± 11.9     | **−141.5 ± 15.2**  |
+| CartPole-v1    | 22.0 ± 2.2    | 154.4 ± 19.7  | 205.7 ± 137.6     | **270.7 ± 148.9**  |
+| Acrobot-v1     | −498.9 ± 1.4  | −431.7 ± 32.5 | **−123.9 ± 46.1** | −250.4 ± 145.6     |
+| MountainCar-v0 | −200.0 ± 0.0  | −200.0 ± 0.0  | −200.0 ± 0.0      | **−143.5 ± 15.1**  |
 
-**Takeaways.** With a single untuned configuration, NWM **matches DQN on dense
-CartPole** (the gap is far inside the noise) and **beats it on Acrobot and on
-sparse-reward MountainCar**, with markedly lower across-seed variance (on
-Acrobot DQN is all-or-nothing per seed: it either solves the task or scores
-−500). Three mechanisms drive this: `credit_blend` (temporal credit blends
-toward the neutral score instead of decaying toward repulsion, so early steps
-of good episodes stay attractive), `relative_gate` (a sign-aware quality gate;
-the legacy gate silently disabled attraction and the Smart Lock whenever
-returns were negative), and `adaptive_repeat` (self-tuning sticky exploration
-that ramps only while returns are flat, building the momentum sparse rewards
-need). See [`paper/`](paper/) for the full analysis, including negative
-results on bootstrapped credit assignment. Absolute numbers shift with library
-versions; regenerate with `python -m benchmarks.run_benchmark --seeds 5 6 7 8 9`.
+**Takeaways.** With a single untuned configuration, NWM **leads on dense
+CartPole** and **wins clearly on sparse-reward MountainCar**, where the
+(corrected) DQN never reaches the goal within the episode budget. On
+**Acrobot the corrected DQN is the strongest method**: earlier versions of
+this table showed NWM ahead there, but that advantage evaporated once we
+fixed a bug *in the baselines* — DQN and tabular Q-learning were zeroing the
+bootstrap target on time-limit truncation, which poisons value estimates
+precisely on long-horizon tasks (DQN on Acrobot: −335.6 → −123.9 after the
+fix). We report the corrected comparison because beating a handicapped
+baseline is not a result. NWM's remaining Acrobot gap is consistent with the
+paper's negative results on bootstrapped credit assignment: value propagation
+over long horizons is exactly what a memory-based method lacks.
+
+The NWM mechanisms behind the wins: `credit_blend` (temporal credit blends
+toward the neutral score, so early steps of good episodes stay attractive),
+`relative_gate` (sign-aware quality gate; the legacy gate silently disabled
+attraction and the Smart Lock under negative returns), `adaptive_repeat`
+(self-tuning sticky exploration for sparse rewards), `truncation_credit`
+(late-step blame only when a true terminal event exists), and `eval_sticky`
+(momentum-preserving fallback on unknown states during greedy evaluation).
+Opt-in extras for non-stationary or long-horizon settings: `score_ema`
+(recency-weighted memories) and `dynamic_unlock` (locks that release when
+their recent scores collapse) — they trade CartPole/MountainCar performance
+for Acrobot gains, so they stay off in the shared benchmark config. Absolute
+numbers shift with library versions; regenerate with
+`python -m benchmarks.run_benchmark --seeds 5 6 7 8 9`.
 
 ## Paper
 

@@ -134,6 +134,38 @@ class NWMConfig:
     # are negative, silently disabling attraction and the Smart Lock there.
     relative_gate: bool = False
 
+    # --- Memory recency ---
+    # If > 0, per-action centroid scores are exponential moving averages with
+    # this smoothing factor instead of all-time running sums. Percentile
+    # episode scores are non-stationary (a 0.9 from episode 10 is not a 0.9
+    # from episode 190), so without forgetting, stale judgments accumulate.
+    score_ema: float = 0.0
+
+    # If True, a locked centroid whose recent merged scores collapse (EMA
+    # below 0.45) loses its lock. The legacy Smart Lock is permanent, which
+    # protects memories even after they stop being right.
+    dynamic_unlock: bool = False
+
+    # --- Truncation-aware credit ---
+    # If True, temporal credit uses the terminated/truncated distinction:
+    # a bad episode ending in a true terminal event keeps the late-step
+    # emphasis (the end caused the failure), while a bad truncated episode
+    # (aimless until the time limit) gets flat mild credit; a good truncated
+    # episode (survived the full limit) gets full flat credit instead of
+    # under-crediting its early steps. Requires passing ``terminated`` to
+    # ``NWMAgent.step``; without it the legacy ramp is used.
+    truncation_credit: bool = False
+
+    # --- Environment-agnostic exploration collapse ---
+    # If True, the adaptive exploration schedule uses percentiles of the
+    # agent's own return history instead of the absolute thresholds 450/300,
+    # which only make sense for CartPole-scale rewards.
+    relative_explore: bool = False
+
+    # If True, sticky exploration is also applied to the random fallback used
+    # during greedy evaluation on unknown states, preserving momentum there.
+    eval_sticky: bool = False
+
     # Reproducibility
     seed: int | None = None
 

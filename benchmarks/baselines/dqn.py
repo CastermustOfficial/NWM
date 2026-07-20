@@ -99,14 +99,18 @@ class DQNAgent:
         reward: float,
         next_state: np.ndarray,
         done: bool,
+        terminated: bool | None = None,
     ) -> None:
+        # Only a true terminal event zeroes the bootstrap target; a time-limit
+        # truncation is not the end of the underlying process (standard fix).
+        terminal = done if terminated is None else terminated
         self.buffer.append(
             (
                 np.asarray(state, dtype=np.float32),
                 action,
                 reward,
                 np.asarray(next_state, dtype=np.float32),
-                float(done),
+                float(terminal),
             )
         )
         self._steps += 1

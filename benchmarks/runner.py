@@ -93,7 +93,7 @@ def train_one_run(
             action = agent.act(state, training=True)
             next_state, reward, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
-            agent.observe(state, action, float(reward), next_state, done)
+            agent.observe(state, action, float(reward), next_state, done, terminated)
             state = next_state
             total += float(reward)
         agent.end_episode()
